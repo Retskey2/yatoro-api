@@ -8,7 +8,7 @@ const envSchema = z.object({
   PORT: z
     .string()
     .transform((val) => parseInt(val, 10))
-    .default(3000),
+    .default(5084),
 });
 
 export const env = envSchema.parse(process.env);

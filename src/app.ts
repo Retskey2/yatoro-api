@@ -1,6 +1,4 @@
 import { Elysia } from "elysia";
-import { z } from "zod";
-import { openapi } from "@elysiajs/openapi";
 import { rateLimit } from "elysia-rate-limit";
 import { cors } from "@elysiajs/cors";
 import { logger } from "elysia-logger";
@@ -13,7 +11,7 @@ export const app = new Elysia()
   .get("/", () => {
     return {
       status: "ok",
-      message: "Elysia 10x API is running",
+      message: "Yotaro API is running",
     };
   })
   .use(
