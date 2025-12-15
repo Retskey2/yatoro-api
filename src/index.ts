@@ -1,7 +1,14 @@
-import { Elysia } from "elysia";
+import { app } from "./app";
+import { env } from "./config/env";
 
-const app = new Elysia().get("/", () => "Hello Elysia").listen(3000);
-
-console.log(
-  `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
-);
+app.listen(env.PORT, () => {
+  console.log(
+    `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
+  );
+  console.log(
+    `📚 OpenAPI documentation at http://${app.server?.hostname}:${app.server?.port}/docs`
+  );
+  console.log(
+    `Better Auth API Docs URL: http://${app.server?.hostname}:${app.server?.port}/api/auth/reference`
+  );
+});
