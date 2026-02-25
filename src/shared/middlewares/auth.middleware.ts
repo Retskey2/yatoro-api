@@ -1,8 +1,9 @@
 import { type Context, Elysia } from "elysia";
 import { jwt } from "@elysiajs/jwt";
-import { UsersRepository } from "./users.repository";
+
 import { env } from "@/config/env";
 import { users } from "@/database/schema";
+import { UsersRepository } from "@/modules/users/users.repository";
 
 type SafeUser = Omit<typeof users.$inferSelect, "passwordHash">;
 type Role = "USER" | "MODERATOR" | "ADMIN";
@@ -14,7 +15,6 @@ export const isAuthenticated = new Elysia({ name: "is-authenticated" })
       secret: env.JWT_SECRET!,
     }),
   )
-
   .derive({ as: "global" }, async ({ headers, jwt, set }) => {
     const authHeader = headers["authorization"];
     const token = authHeader?.startsWith("Bearer ")

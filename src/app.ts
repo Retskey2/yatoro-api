@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { apiRouter } from "./domains";
+import { apiRouter } from "./modules";
 import { setup } from "./setup";
 
 export const app = new Elysia()
