@@ -1,12 +1,17 @@
-import { Elysia } from "elysia";
+import { type Context, Elysia } from "elysia";
 import { jwt } from "@elysiajs/jwt";
 import { UsersRepository } from "./users.repository";
+import { env } from "@/config/env";
+import { users } from "@/database/schema";
+
+type SafeUser = Omit<typeof users.$inferSelect, "passwordHash">;
+type Role = "USER" | "MODERATOR" | "ADMIN";
 
 export const isAuthenticated = new Elysia({ name: "is-authenticated" })
   .use(
     jwt({
       name: "jwt",
-      secret: process.env.JWT_SECRET!,
+      secret: env.JWT_SECRET!,
     }),
   )
 
@@ -36,4 +41,21 @@ export const isAuthenticated = new Elysia({ name: "is-authenticated" })
     const { passwordHash, ...safeUser } = user;
 
     return { user: safeUser };
-  });
+  })
+  .macro(({ onBeforeHandle }) => ({
+    isRole(requiredRole: Role) {
+      onBeforeHandle(
+        ({ user, set }: { user: SafeUser; set: Context["set"] }) => {
+          if (!user) {
+            set.status = 401;
+            return { message: "Не авторизован" };
+          }
+
+          if (user.role !== "ADMIN" && user.role !== requiredRole) {
+            set.status = 403;
+            return { message: "Доступ запрещен. Недостаточно прав." };
+          }
+        },
+      );
+    },
+  }));
