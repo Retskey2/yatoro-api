@@ -1,4 +1,3 @@
-// src/domains/anime/anime.repository.ts
 import { db } from "@/database";
 import { anime } from "@/database/schema";
 import { eq } from "drizzle-orm";

@@ -2,7 +2,6 @@ import { Elysia, t } from "elysia";
 import { jwt } from "@elysiajs/jwt";
 import { UsersRepository } from "./users.repository";
 import { isAuthenticated } from "./auth.middleware";
-import { success } from "zod";
 
 export const usersPlugin = new Elysia({ prefix: "/users" })
   .use(

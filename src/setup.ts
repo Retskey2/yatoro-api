@@ -3,6 +3,7 @@ import { logger } from "elysia-logger";
 import { env } from "./config/env";
 import cors from "@elysiajs/cors";
 import { rateLimit } from "elysia-rate-limit";
+import staticPlugin from "@elysiajs/static";
 
 export const setup = new Elysia({ name: "setup" })
   .use(logger({ level: env.LOG_LEVEL }))
@@ -62,4 +63,10 @@ export const setup = new Elysia({ name: "setup" })
 
     set.status = 500;
     return response;
-  });
+  })
+  .use(
+    staticPlugin({
+      assets: "uploads",
+      prefix: "/uploads",
+    }),
+  );

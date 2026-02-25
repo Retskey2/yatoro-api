@@ -1,13 +1,12 @@
-// src/domains/anime/anime.plugin.ts
 import { Elysia, t } from "elysia";
 import { AnimeRepository } from "./anime.repository";
 import { isAuthenticated } from "@/domains/users/auth.middleware";
+import { EpisodesRepository } from "./episodes.repository";
 
 export const animePlugin = new Elysia({ prefix: "/anime" })
   .get("/", async () => {
     return await AnimeRepository.getAll();
   })
-
   .get(
     "/:id",
     async ({ params, set }) => {
@@ -26,34 +25,70 @@ export const animePlugin = new Elysia({ prefix: "/anime" })
       }),
     },
   )
-
   .guard({}, (app) =>
-    app.use(isAuthenticated).post(
-      "/",
-      async ({ body, set, user }) => {
-        const newAnime = await AnimeRepository.create({
-          title: body.title,
-          description: body.description,
-          posterUrl: body.posterUrl,
-          status: body.status,
-        });
+    app
+      .use(isAuthenticated)
+      .post(
+        "/",
+        async ({ body, set, user }) => {
+          const newAnime = await AnimeRepository.create({
+            title: body.title,
+            description: body.description,
+            posterUrl: body.posterUrl,
+            status: body.status,
+          });
 
-        set.status = 201;
-        return {
-          message: "Аниме успешно добавлено!",
-          anime: newAnime,
-          addedBy: user.username,
-        };
-      },
-      {
-        isRole: "ADMIN",
+          set.status = 201;
+          return {
+            message: "Аниме успешно добавлено!",
+            anime: newAnime,
+            addedBy: user.username,
+          };
+        },
+        {
+          isRole: "ADMIN",
 
-        body: t.Object({
-          title: t.String({ minLength: 1 }),
-          description: t.Optional(t.String()),
-          posterUrl: t.Optional(t.String()),
-          status: t.Optional(t.String()),
-        }),
-      },
-    ),
+          body: t.Object({
+            title: t.String({ minLength: 1 }),
+            description: t.Optional(t.String()),
+            posterUrl: t.Optional(t.String()),
+            status: t.Optional(t.String()),
+          }),
+        },
+      )
+      .post(
+        "/:id/episodes",
+        async ({ params, body, set }) => {
+          const animeExists = await AnimeRepository.getById(params.id);
+          if (!animeExists) {
+            set.status = 404;
+            throw new Error("Аниме с таким ID не найдено");
+          }
+
+          const newEpisode = await EpisodesRepository.create({
+            animeId: params.id,
+            episodeNumber: body.episodeNumber,
+            title: body.title,
+            videoUrl: body.videoUrl,
+          });
+
+          set.status = 201;
+          return {
+            message: "Эпизод успешно добавлен",
+            episode: newEpisode,
+          };
+        },
+        {
+          isRole: "ADMIN",
+
+          params: t.Object({
+            id: t.Numeric(),
+          }),
+          body: t.Object({
+            episodeNumber: t.Numeric(),
+            title: t.Optional(t.String()),
+            videoUrl: t.String(),
+          }),
+        },
+      ),
   );
