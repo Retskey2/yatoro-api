@@ -3,11 +3,11 @@ import { rateLimit } from "elysia-rate-limit";
 import { cors } from "@elysiajs/cors";
 import { logger } from "elysia-logger";
 import { env } from "@/config/env";
+import { apiRouter } from "./domains";
 
 export const app = new Elysia()
-  .onRequest(() => {
-    // console.log('!!! INCOMING REQUEST:', request.method, request.url);
-  })
+  .use(apiRouter)
+  .onRequest(() => {})
   .get("/", () => {
     return {
       status: "ok",
@@ -17,7 +17,7 @@ export const app = new Elysia()
   .use(
     logger({
       level: env.LOG_LEVEL,
-    })
+    }),
   )
   .use(
     rateLimit({
@@ -30,9 +30,9 @@ export const app = new Elysia()
           status: 429,
           message: "Too many requests - try again later",
         }),
-        { status: 429, headers: { "Content-Type": "application/json" } }
+        { status: 429, headers: { "Content-Type": "application/json" } },
       ),
-    })
+    }),
   )
   .use(
     cors({
@@ -40,7 +40,7 @@ export const app = new Elysia()
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       credentials: true,
       allowedHeaders: ["Content-Type", "Authorization"],
-    })
+    }),
   )
   .onError(({ code, error }) => {
     if (error instanceof Response) {
