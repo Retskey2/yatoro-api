@@ -17,13 +17,18 @@ process.env.UPLOADS_DIR = mkdtempSync(join(tmpdir(), "yatoro-uploads-"));
 
 // Imported dynamically so that env is configured first
 const { PGlite } = await import("@electric-sql/pglite");
+const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
 const { drizzle } = await import("drizzle-orm/pglite");
 const { migrate } = await import("drizzle-orm/pglite/migrator");
 const schema = await import("../src/database/schema");
 
-const client = new PGlite();
+const client = new PGlite({ extensions: { pg_trgm } });
 const db = drizzle(client, { schema, casing: "snake_case" });
 
 await migrate(db, { migrationsFolder: join(import.meta.dir, "../src/database/migrations") });
+
+// PGlite has a single session and ignores startup parameters, so settings are applied once here
+const { SEARCH_SESSION_SQL } = await import("../src/database/search");
+await client.exec(SEARCH_SESSION_SQL);
 
 mock.module("@/database", () => ({ db, client }));

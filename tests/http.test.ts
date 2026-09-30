@@ -9,7 +9,7 @@ beforeEach(resetDatabase);
 
 describe("error handling", () => {
   it("hides internal error details from clients (A7 regression)", async () => {
-    const spy = spyOn(AnimeRepository, "list").mockRejectedValueOnce(
+    const spy = spyOn(AnimeRepository, "search").mockRejectedValueOnce(
       new Error('Failed query: select * from "users" params: secret'),
     );
 

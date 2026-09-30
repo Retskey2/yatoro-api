@@ -24,6 +24,9 @@ const envSchema = z.object({
   RATE_LIMIT_ENABLED: z.stringbool().default(true),
 
   UPLOADS_DIR: z.string().default("uploads"),
+
+  // Shikimori asks API clients to identify themselves (never mimic a browser)
+  SHIKIMORI_USER_AGENT: z.string().min(1).default("Yatoro"),
 });
 
 export type Env = z.infer<typeof envSchema>;

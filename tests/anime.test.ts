@@ -82,12 +82,12 @@ describe("anime catalog", () => {
   it("paginates newest first with a cursor (A10)", async () => {
     for (const title of ["First", "Second", "Third"]) await createAnime({ title });
 
-    const firstPage = await api.anime.get({ query: { limit: 2 } });
+    const firstPage = await api.anime.get({ query: { limit: 2, sort: "newest" } });
     expect(firstPage.data?.items.map((item) => item.title)).toEqual(["Third", "Second"]);
     expect(firstPage.data?.nextCursor).not.toBeNull();
 
     const secondPage = await api.anime.get({
-      query: { limit: 2, cursor: firstPage.data?.nextCursor ?? undefined },
+      query: { limit: 2, sort: "newest", cursor: firstPage.data?.nextCursor ?? undefined },
     });
     expect(secondPage.data?.items.map((item) => item.title)).toEqual(["First"]);
     expect(secondPage.data?.nextCursor).toBeNull();

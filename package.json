@@ -16,7 +16,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/database/migrate.ts",
     "db:seed": "bun run src/database/seed.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "catalog:import": "bun run src/modules/catalog-import/import-catalog.ts",
+    "bench:catalog": "bun run scripts/bench-catalog.ts"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
