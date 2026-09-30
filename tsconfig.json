@@ -9,7 +9,6 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
@@ -18,5 +17,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "tests", "drizzle.config.ts"]
+  "include": ["src", "tests", "scripts", "drizzle.config.ts"]
 }

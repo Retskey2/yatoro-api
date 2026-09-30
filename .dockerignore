@@ -1,0 +1,15 @@
+node_modules
+.git
+.github
+.pglite
+uploads
+coverage
+tests
+docs
+scripts
+.env
+.env.*
+!.env.example
+*.log
+Dockerfile
+docker-compose.yml

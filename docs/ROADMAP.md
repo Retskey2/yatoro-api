@@ -69,6 +69,8 @@
 | elysia-rate-limit | 4.4.2 | ✅ **4.6.3** | 5.x требует Elysia 2 — обновимся вместе с ней |
 | elysia-logger | 0.5.2 | ✅ **pino 10.3** (+ pino-pretty в dev) | elysia-logger перехватывал ошибки своим `onError` и ломал единый формат ответов |
 | bun-types | `latest` | ✅ **@types/bun 1.4.2** | Рекомендуемый пакет типов |
+| + @types/node | транзитивно 25.x | ✅ **^24** (dev, фаза 1) | С 25.x `bun-types` 1.4.2 скрывает перегрузки `process.on/once` (сигналы не типизируются). 24 — LTS-линия, совместимая с Bun |
+| + @electric-sql/pglite-socket | — | ✅ **0.2.11** (dev, фаза 1) | `bun run db:dev`: PGlite (PostgreSQL 18.3) по протоколу Postgres — локальная база без Docker |
 | TypeScript | — | ✅ **7.0.2** (нативный компилятор) | Проверка всего проекта ≈ 0,5 с; tsconfig: `moduleResolution: bundler`, `verbatimModuleSyntax`, `noUncheckedIndexedAccess` |
 | + @electric-sql/pglite | — | ✅ **0.5.8** (dev) | Настоящий Postgres внутри процесса — тесты без Docker |
 | + Biome | — | ✅ **2.5.15** (dev) | Линтер и форматтер одним инструментом |
@@ -165,13 +167,22 @@ docs/
 > API-изменения: `POST /media/upload/image` → `POST /media/images`, `/media/upload/video` → `/media/videos` (папка `shorts` убрана),
 > поле серии `episodeNumber` → `number`, ответы успешных запросов — сам ресурс или `{ items, nextCursor }`.
 
-### Фаза 1 — Инфраструктура разработки ⬜
+### Фаза 1 — Инфраструктура разработки 🟨
 
-- Dockerfile (multi-stage, `oven/bun`), `docker-compose.yml`: api, postgres, redis, minio
-- `GET /health` (с проверкой базы), graceful shutdown, структурные логи
-- GitHub Actions: install → lint → typecheck → test → сборка образа
-- Seed-скрипт с демо-данными
-- README: описание, стек, запуск, схема, ссылки на `/docs` и ADR
+- ✅ Локальная база без Docker: `bun run db:dev` — PGlite по протоколу Postgres (`@electric-sql/pglite-socket`), данные в `./.pglite`
+- ✅ Dockerfile (multi-stage, `oven/bun:1.4.2-alpine`, только prod-зависимости, non-root, HEALTHCHECK), `.dockerignore`
+- ✅ `docker-compose.yml`: api + PostgreSQL 18. Redis и MinIO добавим в фазе 4, когда они реально понадобятся
+- ✅ `GET /health` (проверка базы с таймаутом, 503 при недоступности), graceful shutdown (SIGINT/SIGTERM), `DATABASE_POOL_MAX`
+- ✅ Seed: админ из `SEED_ADMIN_*`, 9 жанров, 7 тайтлов с сериями; идемпотентный
+- ✅ GitHub Actions: lint/types/tests · миграции + двойной seed + смоук-тест на настоящем PostgreSQL 18 · сборка Docker-образа
+- ✅ README: быстрый старт без Docker, CI-бейдж, скрипты, API
+- ⬜ Первый зелёный прогон CI на GitHub (после push)
+- ⬜ Локальный запуск `docker compose up` — когда будет Docker
+
+> Локально Docker пока нет, поэтому Dockerfile и compose проверяются в CI (job `docker`),
+> а миграции на настоящем PostgreSQL — в job `postgres` (там же проверяется graceful shutdown по SIGTERM).
+> Локально проверено: `db:dev` → `db:migrate` → двойной `db:seed` → сервер → `/health`, каталог, вход админа —
+> всё через драйвер `postgres-js` по сети, PGlite = PostgreSQL 18.3 (та же мажорная версия, что в CI).
 
 ### Фаза 2 — Каталог ⬜
 
