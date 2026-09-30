@@ -1,14 +1,9 @@
 import { app } from "./app";
 import { env } from "./config/env";
+import { logger } from "./shared/logger";
 
-app.listen(env.PORT, () => {
-  console.log(
-    `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
-  );
-  console.log(
-    `📚 OpenAPI documentation at http://${app.server?.hostname}:${app.server?.port}/docs`
-  );
-  console.log(
-    `Better Auth API Docs URL: http://${app.server?.hostname}:${app.server?.port}/api/auth/reference`
-  );
+app.listen(env.PORT, (server) => {
+  const url = `http://${server.hostname}:${server.port}`;
+  logger.info(`🦊 Yatoro API запущен: ${url}`);
+  logger.info(`📚 Документация OpenAPI: ${url}/docs`);
 });

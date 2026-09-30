@@ -1,15 +1,37 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  DATABASE_URL: z.string(),
-  JWT_SECRET: z.string(),
-  LOG_LEVEL: z
-    .enum(["fatal", "error", "warn", "info", "debug", "trace"])
-    .default("info"),
-  PORT: z
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  PORT: z.coerce.number().int().positive().default(5084),
+  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+
+  DATABASE_URL: z.string().min(1),
+
+  JWT_SECRET: z.string().min(32, "JWT_SECRET должен быть не короче 32 символов"),
+  JWT_ACCESS_TTL: z.string().default("1h"),
+
+  CORS_ORIGINS: z
     .string()
-    .transform((val) => parseInt(val, 10))
-    .default(5084),
+    .default("http://localhost:3000")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    ),
+  TRUST_PROXY: z.stringbool().default(false),
+  RATE_LIMIT_ENABLED: z.stringbool().default(true),
+
+  UPLOADS_DIR: z.string().default("uploads"),
 });
 
-export const env = envSchema.parse(process.env);
+export type Env = z.infer<typeof envSchema>;
+
+const parsed = envSchema.safeParse(process.env);
+
+if (!parsed.success) {
+  console.error(`❌ Некорректные переменные окружения:\n${z.prettifyError(parsed.error)}`);
+  process.exit(1);
+}
+
+export const env = parsed.data;

@@ -1,20 +1,35 @@
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/database";
-import { users } from "@/database/schema";
-import { eq } from "drizzle-orm";
+import { type NewUser, users } from "@/database/schema";
 
+// Lookups use lower(...) so they hit the case-insensitive unique indexes
 export const UsersRepository = {
-  findByEmail: async (email: string) => {
-    const [user] = await db.select().from(users).where(eq(users.email, email));
+  findById: async (id: number) => {
+    const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
     return user;
   },
 
-  create: async (data: typeof users.$inferInsert) => {
-    const [newUser] = await db.insert(users).values(data).returning();
-    return newUser;
+  findByEmail: async (email: string) => {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(sql`lower(${users.email}) = lower(${email})`)
+      .limit(1);
+    return user;
   },
 
-  findById: async (id: number) => {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
+  findByUsername: async (username: string) => {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(sql`lower(${users.username}) = lower(${username})`)
+      .limit(1);
+    return user;
+  },
+
+  create: async (data: NewUser) => {
+    const [user] = await db.insert(users).values(data).returning();
+    if (!user) throw new Error("Insert into users returned no rows");
     return user;
   },
 };

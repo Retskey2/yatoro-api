@@ -1,17 +1,14 @@
-import { env } from "@/config/env";
 import { defineConfig } from "drizzle-kit";
 
+// Reads process.env directly: `drizzle-kit generate` must work without the full app config
 export default defineConfig({
-  schema: "./src/database/schema/index.ts",
-
-  out: "./src/database/migrations",
-
   dialect: "postgresql",
-
+  schema: "./src/database/schema/index.ts",
+  out: "./src/database/migrations",
+  casing: "snake_case",
   dbCredentials: {
-    url: env.DATABASE_URL!,
+    url: process.env.DATABASE_URL ?? "",
   },
-
-  verbose: true,
   strict: true,
+  verbose: true,
 });

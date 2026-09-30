@@ -1,10 +1,11 @@
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text } from "drizzle-orm/pg-core";
+import { id, timestamps } from "./columns";
 
-export const genre = pgTable("genres", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  title: text("title").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+export const genres = pgTable("genres", {
+  id: id(),
+  name: text().notNull().unique(),
+  slug: text().notNull().unique(),
+  ...timestamps,
 });
+
+export type Genre = typeof genres.$inferSelect;

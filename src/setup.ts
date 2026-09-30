@@ -1,72 +1,67 @@
-import { Elysia } from "elysia";
-import { logger } from "elysia-logger";
-import { env } from "./config/env";
+import { mkdirSync } from "node:fs";
 import cors from "@elysiajs/cors";
-import { rateLimit } from "elysia-rate-limit";
+import { openapi } from "@elysiajs/openapi";
 import staticPlugin from "@elysiajs/static";
+import { Elysia } from "elysia";
+import { env } from "./config/env";
+import { errorHandler } from "./shared/plugins/error-handler";
+import { rateLimiter } from "./shared/plugins/rate-limit";
+import { requestLogger } from "./shared/plugins/request-logger";
+
+// The static plugin scans this directory as soon as it is created
+mkdirSync(env.UPLOADS_DIR, { recursive: true });
 
 export const setup = new Elysia({ name: "setup" })
-  .use(logger({ level: env.LOG_LEVEL }))
+  .use(requestLogger)
+  .use(errorHandler)
   .use(
     cors({
-      origin: ["http://localhost:3001", "http://localhost:4000"],
-      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      origin: env.CORS_ORIGINS,
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       credentials: true,
       allowedHeaders: ["Content-Type", "Authorization"],
+      exposeHeaders: [
+        "X-Request-Id",
+        "RateLimit-Limit",
+        "RateLimit-Remaining",
+        "RateLimit-Reset",
+        "Retry-After",
+      ],
     }),
   )
-  .use(
-    rateLimit({
-      max: 60,
-      duration: 60000,
-      generator: (req, server) =>
-        req.headers.get("x-api-key") || server?.requestIP(req)?.address || "",
-      errorResponse: new Response(
-        JSON.stringify({
-          status: 429,
-          message: "Too many requests - try again later",
-        }),
-        { status: 429, headers: { "Content-Type": "application/json" } },
-      ),
-    }),
-  )
-  .onError(({ code, error, set }) => {
-    const response = {
-      success: false,
-      message: "Произошла неизвестная ошибка",
-      details: null as any,
-    };
-
-    if (code === "VALIDATION") {
-      set.status = 400;
-      response.message = "Ошибка валидации данных";
-
-      response.details = error.all.map((err) => ({
-        field: err.summary?.replace("/", ""),
-        message: err.summary,
-      }));
-      return response;
-    }
-
-    if (code === "NOT_FOUND") {
-      set.status = 404;
-      response.message = "Маршрут не найден";
-      return response;
-    }
-
-    if (error instanceof Error) {
-      if (set.status === 200) set.status = 500;
-
-      response.message = error.message;
-      return response;
-    }
-
-    set.status = 500;
-    return response;
-  })
+  .use(rateLimiter)
   .use(
     staticPlugin({
-      assets: "uploads",
+      assets: env.UPLOADS_DIR,
       prefix: "/uploads",
+      // Defense in depth: even if a file were misinterpreted, nothing in it can execute
+      headers: {
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+      },
+    }),
+  )
+  .use(
+    openapi({
+      path: "/docs",
+      documentation: {
+        info: {
+          title: "Yatoro API",
+          version: "0.1.0",
+          description: "Бэкенд аниме-кинотеки на Bun + Elysia",
+        },
+        tags: [
+          { name: "Auth", description: "Регистрация и вход" },
+          { name: "Users", description: "Профили пользователей" },
+          { name: "Anime", description: "Каталог и серии" },
+          { name: "Genres", description: "Жанры" },
+          { name: "Media", description: "Загрузка файлов" },
+        ],
+        components: {
+          securitySchemes: {
+            bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+          },
+        },
+      },
     }),
   );

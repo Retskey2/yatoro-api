@@ -1,38 +1,22 @@
-import { Elysia, t } from "elysia";
-import { isAuthenticated } from "@/shared/middlewares/auth.middleware";
+import { Elysia } from "elysia";
+import { bearerAuth, IdParams } from "@/shared/http";
+import { authGuard } from "@/shared/plugins/auth";
+import { PrivateUser, PublicUser, toPrivateUser } from "./users.model";
 import { UsersService } from "./users.service";
 
 const usersService = new UsersService();
 
-export const usersPlugin = new Elysia({ prefix: "/users" })
+export const usersPlugin = new Elysia({ prefix: "/users", tags: ["Users"] })
+  .use(authGuard)
 
-  .guard({}, (app) =>
-    app.use(isAuthenticated).get("/me", ({ user }) => {
-      return {
-        success: true,
-        user,
-      };
-    }),
-  )
+  .get("/me", ({ user }) => toPrivateUser(user), {
+    auth: true,
+    response: PrivateUser,
+    detail: { summary: "Текущий пользователь", security: bearerAuth },
+  })
 
-  .get(
-    "/:id",
-    async ({ params, set }) => {
-      try {
-        const userProfile = await usersService.getUserProfile(params.id);
-
-        return {
-          success: true,
-          user: userProfile,
-        };
-      } catch (error: any) {
-        set.status = 404;
-        return { message: error.message };
-      }
-    },
-    {
-      params: t.Object({
-        id: t.Numeric(),
-      }),
-    },
-  );
+  .get("/:id", ({ params }) => usersService.getPublicProfile(params.id), {
+    params: IdParams,
+    response: PublicUser,
+    detail: { summary: "Публичный профиль (без email)" },
+  });

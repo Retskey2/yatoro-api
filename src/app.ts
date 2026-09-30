@@ -4,12 +4,16 @@ import { setup } from "./setup";
 
 export const app = new Elysia()
   .use(setup)
-  .get("/", () => {
-    return {
-      status: "ok",
-      message: "Yotaro API is running",
-    };
-  })
+  .get(
+    "/",
+    () => {
+      return {
+        status: "ok",
+        message: "Yatoro API is running",
+      };
+    },
+    { detail: { hide: true } },
+  )
   .use(apiRouter);
 
 export type App = typeof app;
