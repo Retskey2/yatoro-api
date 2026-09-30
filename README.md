@@ -1,5 +1,7 @@
 # Yatoro API
 
+[![CI](https://github.com/Retskey2/yatoro-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Retskey2/yatoro-api/actions/workflows/ci.yml)
+
 Бэкенд аниме-кинотеки на **Bun + Elysia**: каталог с жанрами и сериями, пользователи с ролями,
 загрузка медиа. В планах — адаптивный стриминг (HLS), полнотекстовый поиск и совместный просмотр
 ([ROADMAP](docs/ROADMAP.md)).
@@ -9,39 +11,62 @@
 | Слой | Технологии |
 |---|---|
 | Рантайм и HTTP | Bun 1.4, Elysia 1.4 (macro v2, TypeBox-валидация, OpenAPI/Scalar) |
-| База данных | PostgreSQL, Drizzle ORM 0.45 + drizzle-kit (миграции) |
+| База данных | PostgreSQL 18, Drizzle ORM 0.45 + drizzle-kit (миграции) |
 | Авторизация | JWT (access-токен с TTL), argon2id через `Bun.password`, иерархия ролей USER < MODERATOR < ADMIN |
-| Качество | TypeScript 7 (нативный `tsc`), Biome, `bun test` + PGlite, Eden Treaty |
-| Наблюдаемость | pino (JSON-логи), `X-Request-Id` на каждый запрос |
+| Качество | TypeScript 7 (нативный `tsc`), Biome, `bun test` + PGlite, Eden Treaty, GitHub Actions |
+| Эксплуатация | Docker (multi-stage), `/health`, graceful shutdown, pino (JSON-логи), `X-Request-Id` |
 
-## Быстрый старт
+## Быстрый старт (без Docker и без установки Postgres)
 
-Нужны [Bun](https://bun.sh) ≥ 1.4 и PostgreSQL.
+Нужен только [Bun](https://bun.sh) ≥ 1.4. База — PGlite (Postgres, собранный в WASM),
+который `db:dev` отдаёт по обычному протоколу Postgres.
 
 ```bash
 bun install
-cp .env.example .env        # укажите DATABASE_URL и JWT_SECRET (≥ 32 символов)
-bun run db:migrate
+cp .env.example .env     # значения по умолчанию подходят для db:dev
+bun run db:dev           # терминал 1: локальная база, данные в ./.pglite
+bun run db:migrate       # терминал 2
+bun run db:seed          # демо-каталог + админ из SEED_ADMIN_* в .env
 bun run dev
 ```
 
 - API: http://localhost:5084/api
 - Документация (OpenAPI/Scalar): http://localhost:5084/docs
+- Состояние: http://localhost:5084/health
+
+### С Docker
+
+```bash
+JWT_SECRET=$(openssl rand -base64 48) docker compose up --build
+```
+
+Поднимает PostgreSQL 18 и API; миграции применяются при старте контейнера.
 
 ## Скрипты
 
 | Команда | Что делает |
 |---|---|
 | `bun run dev` | Сервер с перезапуском при изменениях |
-| `bun run check` | Линтер + проверка типов + тесты |
-| `bun test` | Тесты на настоящем Postgres (PGlite в памяти, Docker не нужен) |
+| `bun run check` | Линтер + проверка типов + тесты (то же, что job `check` в CI) |
+| `bun test` | Тесты на настоящем Postgres (PGlite в памяти) |
+| `bun run db:dev` | Локальная база без Docker |
 | `bun run db:generate` | Сгенерировать миграцию из изменений схемы |
 | `bun run db:migrate` | Применить миграции |
+| `bun run db:seed` | Демо-данные (идемпотентно) |
+
+## CI
+
+Каждый push в `main` и каждый pull request проходят три проверки:
+
+1. **Lint · Types · Tests** — Biome, `tsc`, `bun test`;
+2. **PostgreSQL 18** — миграции на пустой базе, двойной seed, запуск сервера и смоук-тест API (включая вход админа);
+3. **Docker image** — сборка production-образа.
 
 ## API
 
 | Метод | Путь | Доступ |
 |---|---|---|
+| `GET` | `/health` | все |
 | `POST` | `/api/auth/register`, `/api/auth/login` | все (строгий rate limit) |
 | `GET` | `/api/users/me` | авторизованные |
 | `GET` | `/api/users/:id` | все (публичный профиль, без email) |
@@ -62,12 +87,13 @@ bun run dev
 
 ```
 src/
-  app.ts, index.ts        # сборка приложения / запуск сервера
+  app.ts, index.ts        # сборка приложения / запуск сервера и graceful shutdown
   setup.ts                # CORS, rate limit, логи, ошибки, статика, OpenAPI
   config/env.ts           # валидация окружения (zod)
-  database/               # клиент, схема, миграции
+  database/               # клиент, схема, миграции, seed
   modules/<feature>/      # controller → service → repository (+ model: схемы и маппинг)
   shared/                 # ошибки, HTTP-утилиты, плагины (auth-guard, error-handler, ...)
+scripts/dev-db.ts         # локальный Postgres на PGlite
 tests/                    # интеграционные тесты через Eden Treaty
 docs/ROADMAP.md           # аудит, план и статус работ
 ```

@@ -5,7 +5,8 @@ import { db } from "@/database";
 import { type Role, users } from "@/database/schema";
 
 /** Fully typed client that calls app.handle() directly — no network involved */
-export const api = treaty(app).api;
+export const client = treaty(app);
+export const api = client.api;
 
 export async function resetDatabase() {
   await db.execute(

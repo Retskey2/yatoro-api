@@ -1,0 +1,38 @@
+# Full stack locally:  JWT_SECRET=... docker compose up --build
+# Redis and MinIO join in phase 4 (video pipeline), see docs/ROADMAP.md
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: yatoro
+      POSTGRES_PASSWORD: yatoro
+      POSTGRES_DB: yatoro
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yatoro -d yatoro"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://yatoro:yatoro@postgres:5432/yatoro
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET (32+ characters) in the environment or .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "5084:5084"
+    volumes:
+      - uploads:/app/uploads
+
+volumes:
+  pgdata:
+  uploads:

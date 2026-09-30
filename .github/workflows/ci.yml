@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint · Types · Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun test
+
+  postgres:
+    name: Migrations & smoke test on PostgreSQL 18
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: yatoro
+          POSTGRES_PASSWORD: yatoro
+          POSTGRES_DB: yatoro
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U yatoro -d yatoro"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://yatoro:yatoro@localhost:5432/yatoro
+      JWT_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
+      SEED_ADMIN_EMAIL: admin@yatoro.local
+      SEED_ADMIN_PASSWORD: ci-admin-password
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - run: bun install --frozen-lockfile
+
+      - name: Apply migrations to an empty database
+        run: bun run db:migrate
+
+      - name: Seed twice (must be idempotent)
+        run: bun run db:seed && bun run db:seed
+
+      - name: Smoke test the running server
+        run: |
+          # Run the file directly (not via `bun run start`) so $! is the server itself
+          bun src/index.ts > server.log 2>&1 &
+          SERVER_PID=$!
+          curl --silent --fail --retry 20 --retry-connrefused --retry-delay 1 http://localhost:5084/health
+
+          curl --silent --fail "http://localhost:5084/api/anime?limit=3" | grep -q '"items"'
+
+          TOKEN=$(curl --silent --fail -X POST http://localhost:5084/api/auth/login \
+            -H 'content-type: application/json' \
+            -d "{\"email\":\"$SEED_ADMIN_EMAIL\",\"password\":\"$SEED_ADMIN_PASSWORD\"}" \
+            | jq -r .accessToken)
+
+          curl --silent --fail -X POST http://localhost:5084/api/genres \
+            -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+            -d '{"name":"Меха","slug":"mecha"}' | jq -e '.name == "Меха"'
+
+          # Graceful shutdown: SIGTERM must end with a clean exit
+          kill -TERM "$SERVER_PID"
+          wait "$SERVER_PID"
+          grep -q "Сервер остановлен" server.log
+
+      - name: Server log
+        if: always()
+        run: cat server.log || true
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          tags: yatoro-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

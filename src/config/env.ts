@@ -6,6 +6,7 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
 
   DATABASE_URL: z.string().min(1),
+  DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
 
   JWT_SECRET: z.string().min(32, "JWT_SECRET должен быть не короче 32 символов"),
   JWT_ACCESS_TTL: z.string().default("1h"),
