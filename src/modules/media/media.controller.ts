@@ -1,53 +1,45 @@
 import { Elysia, t } from "elysia";
-import { MediaService, ImageFolder, VideoFolder } from "./media.service";
-import { isAuthenticated } from "@/shared/middlewares/auth.middleware";
+import { ForbiddenError } from "@/shared/errors";
+import { bearerAuth } from "@/shared/http";
+import { authGuard, hasRole } from "@/shared/plugins/auth";
+import { IMAGE_TYPES, MediaService, VIDEO_TYPES } from "./media.service";
 
 const mediaService = new MediaService();
 
-export const mediaPlugin = new Elysia({ prefix: "/media" })
-  .use(isAuthenticated)
+const UploadResponse = t.Object({ url: t.String() });
+
+export const mediaPlugin = new Elysia({ prefix: "/media", tags: ["Media"] })
+  .use(authGuard)
 
   .post(
-    "/upload/image",
-    async ({ body, set }) => {
-      const url = await mediaService.uploadImage(
-        body.image,
-        body.folder as ImageFolder,
-      );
+    "/images",
+    async ({ body, user, status }) => {
+      if (body.kind === "poster" && !hasRole(user.role, "ADMIN")) {
+        throw new ForbiddenError("Загружать постеры могут только администраторы");
+      }
 
-      set.status = 201;
-      return {
-        message: "Изображение загружено",
-        url: url,
-      };
+      return status(201, { url: await mediaService.uploadImage(body.file, body.kind) });
     },
     {
+      auth: true,
       body: t.Object({
-        image: t.File({ maxSize: 5 * 1024 * 1024 }),
-        folder: t.Union([t.Literal("avatars"), t.Literal("posters")]),
+        file: t.File({ type: Object.keys(IMAGE_TYPES), maxSize: "5m" }),
+        kind: t.UnionEnum(["avatar", "poster"]),
       }),
+      response: { 201: UploadResponse },
+      detail: { summary: "Загрузить изображение (аватар или постер)", security: bearerAuth },
     },
   )
 
   .post(
-    "/upload/video",
-    async ({ body, set, user }) => {
-      const url = await mediaService.uploadVideo(
-        body.video,
-        body.folder as VideoFolder,
-        user.role,
-      );
-
-      set.status = 201;
-      return {
-        message: "Видео загружено",
-        url: url,
-      };
-    },
+    "/videos",
+    async ({ body, status }) => status(201, { url: await mediaService.uploadVideo(body.file) }),
     {
+      role: "ADMIN",
       body: t.Object({
-        video: t.File({ maxSize: 100 * 1024 * 1024 }),
-        folder: t.Union([t.Literal("shorts"), t.Literal("episodes")]),
+        file: t.File({ type: Object.keys(VIDEO_TYPES), maxSize: "100m" }),
       }),
+      response: { 201: UploadResponse },
+      detail: { summary: "Загрузить видео серии", security: bearerAuth },
     },
   );

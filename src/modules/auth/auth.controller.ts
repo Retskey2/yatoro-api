@@ -1,68 +1,46 @@
-import { Elysia, t } from "elysia";
-import { jwt } from "@elysiajs/jwt";
+import { Elysia } from "elysia";
+import { toPrivateUser } from "@/modules/users/users.model";
+import { jwtPlugin } from "@/shared/plugins/auth";
+import { AuthResponse, LoginBody, RegisterBody } from "./auth.model";
 import { AuthService } from "./auth.service";
 
 const authService = new AuthService();
 
-export const authPlugin = new Elysia({ prefix: "/auth" })
-  .use(
-    jwt({
-      name: "jwt",
-      secret: process.env.JWT_SECRET!,
-    }),
-  )
+export const authPlugin = new Elysia({ prefix: "/auth", tags: ["Auth"] })
+  .use(jwtPlugin)
 
   .post(
     "/register",
-    async ({ body, jwt, set }) => {
-      try {
-        const newUser = await authService.register({
-          email: body.email,
-          username: body.username,
-          password: body.password,
-          passwordHash: "",
-        });
+    async ({ body, jwt, status }) => {
+      const user = await authService.register(body);
 
-        const token = await jwt.sign({ id: newUser.id });
-
-        set.status = 201;
-        return {
-          message: "Успешная регистрация",
-          token,
-          user: { id: newUser.id, username: newUser.username },
-        };
-      } catch (error: any) {
-        set.status = 400;
-        return { message: error.message };
-      }
+      return status(201, {
+        accessToken: await jwt.sign({ sub: String(user.id) }),
+        tokenType: "Bearer" as const,
+        user: toPrivateUser(user),
+      });
     },
     {
-      body: t.Object({
-        username: t.String({ minLength: 3 }),
-        email: t.String({ format: "email" }),
-        password: t.String({ minLength: 6 }),
-      }),
+      body: RegisterBody,
+      response: { 201: AuthResponse },
+      detail: { summary: "Регистрация" },
     },
   )
 
   .post(
     "/login",
-    async ({ body, jwt, set }) => {
-      try {
-        const user = await authService.login(body.email, body.password);
+    async ({ body, jwt }) => {
+      const user = await authService.login(body.email, body.password);
 
-        const token = await jwt.sign({ id: user.id });
-
-        return { token, user: { id: user.id, username: user.username } };
-      } catch (error: any) {
-        set.status = 401;
-        return { message: error.message };
-      }
+      return {
+        accessToken: await jwt.sign({ sub: String(user.id) }),
+        tokenType: "Bearer" as const,
+        user: toPrivateUser(user),
+      };
     },
     {
-      body: t.Object({
-        email: t.String({ format: "email" }),
-        password: t.String(),
-      }),
+      body: LoginBody,
+      response: AuthResponse,
+      detail: { summary: "Вход по email и паролю" },
     },
   );

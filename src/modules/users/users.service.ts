@@ -1,15 +1,15 @@
+import { NotFoundError } from "@/shared/errors";
+import { toPublicUser } from "./users.model";
 import { UsersRepository } from "./users.repository";
 
 export class UsersService {
-  async getUserProfile(userId: number) {
+  async getPublicProfile(userId: number) {
     const user = await UsersRepository.findById(userId);
 
     if (!user) {
-      throw new Error("Пользователь не найден");
+      throw new NotFoundError("Пользователь не найден");
     }
 
-    const { passwordHash, ...safeUser } = user;
-
-    return safeUser;
+    return toPublicUser(user);
   }
 }

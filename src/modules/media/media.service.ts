@@ -1,37 +1,52 @@
-import { randomUUID } from "crypto";
+import { join } from "node:path";
+import { fileTypeFromBlob } from "file-type";
+import { env } from "@/config/env";
+import { BadRequestError } from "@/shared/errors";
 
-export type ImageFolder = "avatars" | "posters";
-export type VideoFolder = "shorts" | "episodes";
-export type UploadFolder = ImageFolder | VideoFolder;
+export const IMAGE_TYPES = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/avif": "avif",
+} as const;
+
+export const VIDEO_TYPES = {
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+} as const;
+
+export type ImageKind = "avatar" | "poster";
+
+const IMAGE_FOLDERS: Record<ImageKind, string> = {
+  avatar: "avatars",
+  poster: "posters",
+};
 
 export class MediaService {
-  async uploadImage(file: File, folder: ImageFolder) {
-    if (!file.type.startsWith("image/")) {
-      throw new Error("Файл должен быть изображением");
-    }
-
-    return await this.saveFile(file, folder);
+  async uploadImage(file: File, kind: ImageKind) {
+    return await this.saveFile(file, IMAGE_FOLDERS[kind], IMAGE_TYPES);
   }
 
-  async uploadVideo(file: File, folder: VideoFolder, userRole?: string) {
-    if (folder === "episodes" && userRole !== "ADMIN") {
-      throw new Error("Только администраторы могут загружать серии");
-    }
-
-    if (!file.type.startsWith("video/")) {
-      throw new Error("Файл должен быть видеоформата");
-    }
-
-    return await this.saveFile(file, folder);
+  // Temporary: replaced by direct-to-S3 uploads + HLS transcoding (roadmap, phase 4)
+  async uploadVideo(file: File) {
+    return await this.saveFile(file, "episodes", VIDEO_TYPES);
   }
 
-  private async saveFile(file: File, folder: UploadFolder) {
-    const ext = file.name.split(".").pop();
-    const uniqueName = `${randomUUID()}.${ext}`;
-    const filePath = `./uploads/${folder}/${uniqueName}`;
+  /**
+   * Never trusts the client: the type is detected from the file's magic bytes
+   * and the extension comes from that type, not from the original file name.
+   */
+  private async saveFile(file: File, folder: string, allowed: Record<string, string>) {
+    const detected = await fileTypeFromBlob(file);
+    const ext = detected ? allowed[detected.mime] : undefined;
 
-    await Bun.write(filePath, file);
+    if (!ext) {
+      throw new BadRequestError("Недопустимый тип файла", { allowed: Object.keys(allowed) });
+    }
 
-    return `/uploads/${folder}/${uniqueName}`;
+    const fileName = `${Bun.randomUUIDv7()}.${ext}`;
+    await Bun.write(join(env.UPLOADS_DIR, folder, fileName), file);
+
+    return `/uploads/${folder}/${fileName}`;
   }
 }
