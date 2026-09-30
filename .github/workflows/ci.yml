@@ -75,6 +75,13 @@ jobs:
 
           curl --silent --fail "http://localhost:5084/api/anime?limit=3" | grep -q '"items"'
 
+          # Hybrid search on real PostgreSQL. The typo "фрирэн" only matches if the trigram
+          # threshold reached the session via the postgres-js startup parameter (default 0.6 → no hit)
+          curl --silent --fail -G "http://localhost:5084/api/anime" --data-urlencode "q=фрирэн" \
+            | jq -e '.items[0].slug == "sousou-no-frieren"'
+          curl --silent --fail -G "http://localhost:5084/api/anime" --data-urlencode "q=алхимики" \
+            | jq -e '[.items[].slug] | index("fullmetal-alchemist-brotherhood") != null'
+
           TOKEN=$(curl --silent --fail -X POST http://localhost:5084/api/auth/login \
             -H 'content-type: application/json' \
             -d "{\"email\":\"$SEED_ADMIN_EMAIL\",\"password\":\"$SEED_ADMIN_PASSWORD\"}" \

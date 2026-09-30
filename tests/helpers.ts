@@ -10,7 +10,7 @@ export const api = client.api;
 
 export async function resetDatabase() {
   await db.execute(
-    sql`TRUNCATE users, anime, genres, episodes, anime_genres RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE users, anime, genres, studios, episodes, anime_genres, anime_studios RESTART IDENTITY CASCADE`,
   );
 }
 

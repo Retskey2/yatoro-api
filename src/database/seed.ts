@@ -1,8 +1,17 @@
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { normalizeEmail } from "@/modules/auth/auth.model";
+import { seasonOf } from "@/shared/text";
 import type { Database } from "./index";
-import { type AnimeStatus, anime, animeGenres, episodes, genres, users } from "./schema";
+import {
+  type AnimeKind,
+  type AnimeStatus,
+  anime,
+  animeGenres,
+  episodes,
+  genres,
+  users,
+} from "./schema";
 
 const GENRES = [
   { name: "Экшен", slug: "action" },
@@ -18,66 +27,119 @@ const GENRES = [
 
 type GenreSlug = (typeof GENRES)[number]["slug"];
 
+/**
+ * Small offline demo catalog, so the app works without network access.
+ * The full catalog comes from `bun run catalog:import`.
+ */
 const ANIME: {
+  slug: string;
+  /** Real Shikimori (= MyAnimeList) id: `catalog:import` updates these rows instead of duplicating */
+  shikimoriId: number;
   title: string;
+  titleEn: string;
+  titleRomaji: string;
   description: string;
+  kind: AnimeKind;
   status: AnimeStatus;
+  airedOn: string;
   genres: GenreSlug[];
   episodes: number;
 }[] = [
   {
+    slug: "sousou-no-frieren",
+    shikimoriId: 52991,
     title: "Провожающая в последний путь Фрирен",
+    titleEn: "Frieren: Beyond Journey's End",
+    titleRomaji: "Sousou no Frieren",
     description:
       "Эльфийка-маг переживает своих спутников по приключениям и заново учится ценить время, проведённое с людьми.",
+    kind: "TV",
     status: "RELEASED",
+    airedOn: "2023-09-29",
     genres: ["adventure", "drama", "fantasy"],
     episodes: 28,
   },
   {
+    slug: "mushishi",
+    shikimoriId: 457,
     title: "Мастер Муси",
+    titleEn: "Mushi-Shi",
+    titleRomaji: "Mushishi",
     description:
       "Странствующий знаток муси — загадочных существ на грани жизни — помогает людям, столкнувшимся с их влиянием.",
+    kind: "TV",
     status: "RELEASED",
+    airedOn: "2005-10-23",
     genres: ["mystery", "slice-of-life", "fantasy"],
     episodes: 26,
   },
   {
+    slug: "cowboy-bebop",
+    shikimoriId: 1,
     title: "Ковбой Бибоп",
+    titleEn: "Cowboy Bebop",
+    titleRomaji: "Cowboy Bebop",
     description:
       "Экипаж охотников за головами на корабле «Бибоп» ищет заработок и пытается убежать от собственного прошлого.",
+    kind: "TV",
     status: "RELEASED",
+    airedOn: "1998-04-03",
     genres: ["action", "sci-fi", "drama"],
     episodes: 26,
   },
   {
+    slug: "fullmetal-alchemist-brotherhood",
+    shikimoriId: 5114,
     title: "Стальной алхимик: Братство",
+    titleEn: "Fullmetal Alchemist: Brotherhood",
+    titleRomaji: "Hagane no Renkinjutsushi: Fullmetal Alchemist",
     description:
       "Два брата-алхимика ищут философский камень, чтобы вернуть то, что потеряли из-за запретного ритуала.",
+    kind: "TV",
     status: "RELEASED",
+    airedOn: "2009-04-05",
     genres: ["action", "adventure", "fantasy", "drama"],
     episodes: 64,
   },
   {
+    slug: "steins-gate",
+    shikimoriId: 9253,
     title: "Врата Штейна",
+    titleEn: "Steins;Gate",
+    titleRomaji: "Steins;Gate",
     description:
       "Самопровозглашённый безумный учёный случайно находит способ отправлять сообщения в прошлое — и расплачивается за это.",
+    kind: "TV",
     status: "RELEASED",
+    airedOn: "2011-04-06",
     genres: ["sci-fi", "psychological", "drama"],
     episodes: 24,
   },
   {
+    slug: "spy-x-family",
+    shikimoriId: 50265,
     title: "Семья шпиона",
+    titleEn: "Spy x Family",
+    titleRomaji: "Spy x Family",
     description:
       "Шпион, наёмная убийца и девочка-телепат изображают обычную семью — и у каждого своя тайна.",
+    kind: "TV",
     status: "ONGOING",
+    airedOn: "2022-04-09",
     genres: ["action", "comedy"],
     episodes: 25,
   },
   {
+    slug: "jujutsu-kaisen",
+    shikimoriId: 40748,
     title: "Магическая битва",
+    titleEn: "Jujutsu Kaisen",
+    titleRomaji: "Jujutsu Kaisen",
     description:
       "Школьник проглатывает проклятый предмет и попадает в мир магов, сражающихся с проклятиями.",
+    kind: "TV",
     status: "ONGOING",
+    airedOn: "2020-10-03",
     genres: ["action", "fantasy"],
     episodes: 24,
   },
@@ -121,15 +183,25 @@ export async function seed(db: Database, admin: SeedAdmin) {
   const genreIds = new Map((await db.select().from(genres)).map((genre) => [genre.slug, genre.id]));
 
   await db.transaction(async (tx) => {
-    for (const item of ANIME) {
+    for (const [
+      index,
+      { genres: genreSlugs, episodes: episodeCount, ...item },
+    ] of ANIME.entries()) {
       const [created] = await tx
         .insert(anime)
-        .values({ title: item.title, description: item.description, status: item.status })
+        .values({
+          ...item,
+          ...seasonOf(item.airedOn),
+          malId: item.shikimoriId,
+          episodesTotal: episodeCount,
+          episodesAired: item.status === "RELEASED" ? episodeCount : 0,
+          popularityRank: index + 1,
+        })
         .returning({ id: anime.id });
       if (!created) throw new Error(`Failed to insert ${item.title}`);
 
       await tx.insert(animeGenres).values(
-        item.genres.map((slug) => {
+        genreSlugs.map((slug) => {
           const genreId = genreIds.get(slug);
           if (genreId === undefined) throw new Error(`Unknown genre: ${slug}`);
           return { animeId: created.id, genreId };
@@ -137,9 +209,9 @@ export async function seed(db: Database, admin: SeedAdmin) {
       );
 
       await tx.insert(episodes).values(
-        Array.from({ length: item.episodes }, (_, index) => ({
+        Array.from({ length: episodeCount }, (_, episodeIndex) => ({
           animeId: created.id,
-          number: index + 1,
+          number: episodeIndex + 1,
         })),
       );
     }
