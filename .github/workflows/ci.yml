@@ -71,7 +71,7 @@ jobs:
           # Run the file directly (not via `bun run start`) so $! is the server itself
           bun src/index.ts > server.log 2>&1 &
           SERVER_PID=$!
-          curl --silent --fail --retry 20 --retry-connrefused --retry-delay 1 http://localhost:5084/health
+          curl --silent --fail --retry 20 --retry-all-errors --retry-delay 1 http://localhost:5084/health
 
           curl --silent --fail "http://localhost:5084/api/anime?limit=3" | grep -q '"items"'
 
@@ -148,7 +148,7 @@ jobs:
       - name: Restart is idempotent (no duplicate seed, existing bucket kept)
         run: |
           docker compose restart api
-          curl --silent --fail --retry 30 --retry-connrefused --retry-delay 1 http://localhost:5084/health > /dev/null
+          curl --silent --fail --retry 30 --retry-all-errors --retry-delay 1 http://localhost:5084/health > /dev/null
           docker compose logs api | grep -q "Seed: админ уже был, аниме добавлено: 0"
           docker compose logs api | grep -q '"created":false'
 
