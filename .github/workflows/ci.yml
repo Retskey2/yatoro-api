@@ -169,6 +169,13 @@ jobs:
           test "$(docker compose exec -T postgres psql -U yatoro -d yatoro -tAc \
             "select count(*) from pgboss.job where data->>'episodeId' = '43'")" = "0"
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Video upload end to end (presigned upload, verification, queue, cleanup)
+        run: bun scripts/e2e-video.ts
+
       - name: Worker stops gracefully
         run: |
           docker compose stop worker

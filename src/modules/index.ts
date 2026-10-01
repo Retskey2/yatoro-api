@@ -5,11 +5,13 @@ import { authPlugin } from "./auth/auth.controller";
 import { genresPlugin } from "./genres/genres.controller";
 import { mediaPlugin } from "./media/media.controller";
 import { usersPlugin } from "./users/users.controller";
+import { videoPlugin } from "./video/video.controller";
 
 export const apiRouter = new Elysia({ prefix: "/api" })
   .use(authPlugin)
   .use(usersPlugin)
   .use(animePlugin)
+  .use(videoPlugin)
   .use(genresPlugin)
   .use(mediaPlugin)
   .use(auditPlugin);

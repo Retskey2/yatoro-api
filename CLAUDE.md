@@ -39,6 +39,8 @@
   контекст (`actorId`, `requestId`) собирается в роуте через `auditContext(user, set)`.
 - Фоновые задачи — `enqueue(tx, QUEUES.…, data)` из `src/queue` **внутри транзакции** изменения (откат убирает и задачу).
   Очередь стартует до первого запроса; в тестах `@/queue/connection` подменяется pg-boss поверх PGlite (`tests/setup.ts`).
+- Хранилище — только через `ObjectStorage` (`src/shared/storage.ts`); в тестах `setStorage(new FakeStorage())`
+  и обязательно `setStorage(null)` после. Подписанная ссылка не ограничивает тип и размер — проверять сам объект.
 
 ## Грабли, на которые уже наступили
 

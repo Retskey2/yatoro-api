@@ -9,6 +9,9 @@ export const AUDIT_ACTIONS = [
   "episode.update",
   "episode.delete",
   "genre.create",
+  "video.upload_requested",
+  "video.uploaded",
+  "video.rejected",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

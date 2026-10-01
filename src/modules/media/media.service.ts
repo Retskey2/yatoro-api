@@ -10,11 +10,6 @@ export const IMAGE_TYPES = {
   "image/avif": "avif",
 } as const;
 
-export const VIDEO_TYPES = {
-  "video/mp4": "mp4",
-  "video/webm": "webm",
-} as const;
-
 export type ImageKind = "avatar" | "poster";
 
 const IMAGE_FOLDERS: Record<ImageKind, string> = {
@@ -25,11 +20,6 @@ const IMAGE_FOLDERS: Record<ImageKind, string> = {
 export class MediaService {
   async uploadImage(file: File, kind: ImageKind) {
     return await this.saveFile(file, IMAGE_FOLDERS[kind], IMAGE_TYPES);
-  }
-
-  // Temporary: replaced by direct-to-S3 uploads + HLS transcoding (roadmap, phase 4)
-  async uploadVideo(file: File) {
-    return await this.saveFile(file, "episodes", VIDEO_TYPES);
   }
 
   /**

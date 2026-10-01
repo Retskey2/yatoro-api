@@ -73,15 +73,3 @@ describe("POST /api/media/images", () => {
     expect(status).toBe(401);
   });
 });
-
-describe("POST /api/media/videos", () => {
-  it("is available to admins only", async () => {
-    const user = await createUser();
-    // `ftyp isom` header: a valid MP4 signature, so the request gets past body validation
-    const mp4Header = Buffer.from("000000186674797069736f6d0000020069736f6d69736f32", "hex");
-    const video = new File([mp4Header], "ep.mp4", { type: "video/mp4" });
-
-    const { status } = await api.media.videos.post({ file: video }, { headers: user.headers });
-    expect(status).toBe(403);
-  });
-});

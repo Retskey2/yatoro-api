@@ -11,6 +11,7 @@ import {
   type Season,
 } from "@/database/schema";
 import { type AuditContext, AuditRepository, diffFields } from "@/modules/audit/audit.repository";
+import { scheduleEpisodeFilesCleanup } from "@/modules/video/video.cleanup";
 import type { Cursor } from "@/shared/http";
 import type { CatalogSort } from "./anime.model";
 
@@ -208,25 +209,28 @@ export const AnimeRepository = {
     });
   },
 
-  /** Episodes and genre links go with it (ON DELETE CASCADE). Returns false if not found */
+  /**
+   * Episodes and genre links go with it (ON DELETE CASCADE), their files are scheduled for
+   * deletion in the same transaction. Returns false if not found
+   */
   delete: async (id: number, audit: AuditContext) => {
     return await db.transaction(async (tx) => {
       const before = await snapshot(tx, id, { lock: true });
       if (!before) return false;
 
-      const [episodeCount] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(episodes)
-        .where(eq(episodes.animeId, id));
+      const episodeIds = (
+        await tx.select({ id: episodes.id }).from(episodes).where(eq(episodes.animeId, id))
+      ).map((episode) => episode.id);
 
       await tx.delete(anime).where(eq(anime.id, id));
+      await scheduleEpisodeFilesCleanup(tx, episodeIds);
 
       await AuditRepository.record(tx, {
         ...audit,
         action: "anime.delete",
         entityType: "anime",
         entityId: id,
-        changes: diffFields({ ...before, episodeCount: episodeCount?.count ?? 0 }, {}),
+        changes: diffFields({ ...before, episodeCount: episodeIds.length }, {}),
       });
 
       return true;

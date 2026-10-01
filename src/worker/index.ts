@@ -5,8 +5,9 @@
  *   docker compose up     # the `worker` container ships with ffmpeg
  */
 import { client } from "@/database";
-import { QUEUES, startJobQueue, stopJobQueue } from "@/queue";
+import { type JobData, QUEUES, startJobQueue, stopJobQueue } from "@/queue";
 import { logger } from "@/shared/logger";
+import { requireStorage } from "@/shared/storage";
 
 function ffmpegVersion(): string | null {
   try {
@@ -30,6 +31,16 @@ await boss.work(QUEUES.transcode, { pollingIntervalSeconds: 2 }, async ([job]) =
   // Until then fail loudly: a job must never be marked done without being processed.
   logger.warn({ jobId: job?.id, data: job?.data }, "transcode handler is not implemented yet");
   throw new Error("Transcoding is not implemented yet");
+});
+
+await boss.work<JobData["storage.cleanup"]>(QUEUES.cleanup, async ([job]) => {
+  if (!job) return;
+  // Idempotent: deleting an already deleted object or an empty prefix is not an error
+  const storage = requireStorage();
+  for (const key of job.data.keys ?? []) await storage.delete(key);
+  let deleted = job.data.keys?.length ?? 0;
+  for (const prefix of job.data.prefixes ?? []) deleted += await storage.deletePrefix(prefix);
+  logger.info({ jobId: job.id, ...job.data, deleted }, "storage cleanup done");
 });
 
 logger.info({ ffmpeg }, "🎬 worker ready");
