@@ -76,6 +76,8 @@ JWT_SECRET=$(openssl rand -base64 48) docker compose up --build
 | `GET` | `/api/anime?q=&genres=&kind=&status=&season=&yearFrom=&yearTo=&scoreMin=&sort=&cursor=` | все |
 | `GET` | `/api/anime/:id`, `/api/anime/by-slug/:slug` | все |
 | `POST` | `/api/anime`, `/api/anime/:id/episodes` | ADMIN |
+| `PATCH` / `DELETE` | `/api/anime/:id`, `/api/anime/:id/episodes/:number` | ADMIN |
+| `GET` | `/api/admin/audit-log?entityType=&entityId=&actorId=&action=&cursor=` | ADMIN |
 | `GET` / `POST` | `/api/genres` | все / ADMIN |
 | `POST` | `/api/media/images` | авторизованные (постеры — ADMIN) |
 | `POST` | `/api/media/videos` | ADMIN |
@@ -94,6 +96,8 @@ JWT_SECRET=$(openssl rand -base64 48) docker compose up --build
 - **Сортировки:** релевантность, популярность, оценка, новизна, название — у каждой свой keyset-индекс,
   поэтому 10-я страница стоит столько же, сколько первая.
 - **Импорт** из Shikimori: идемпотентный upsert, уважение лимитов API, 18+ не импортируется.
+- **Журнал действий администраторов:** каждое изменение каталога пишется в той же транзакции, что и само изменение, —
+  только изменённые поля (`from` → `to`), автор и `requestId` для связи с логами.
 
 p95 на 1 000 реальных тайтлов — 4 мс для каталога и 28–32 мс для поиска; на 20 000 строк поиск использует
 оба GIN-индекса (BitmapOr). Почему так и как это измерено — [ADR 0001](docs/adr/0001-hybrid-catalog-search.md).

@@ -1,4 +1,5 @@
 import { Elysia, t } from "elysia";
+import { auditContext } from "@/modules/audit/audit.model";
 import { bearerAuth } from "@/shared/http";
 import { authGuard } from "@/shared/plugins/auth";
 import { CreateGenreBody, Genre } from "./genres.model";
@@ -14,9 +15,14 @@ export const genresPlugin = new Elysia({ prefix: "/genres", tags: ["Genres"] })
     detail: { summary: "Список жанров" },
   })
 
-  .post("", async ({ body, status }) => status(201, await genresService.create(body)), {
-    role: "ADMIN",
-    body: CreateGenreBody,
-    response: { 201: Genre },
-    detail: { summary: "Создать жанр", security: bearerAuth },
-  });
+  .post(
+    "",
+    async ({ body, user, set, status }) =>
+      status(201, await genresService.create(body, auditContext(user, set))),
+    {
+      role: "ADMIN",
+      body: CreateGenreBody,
+      response: { 201: Genre },
+      detail: { summary: "Создать жанр", security: bearerAuth },
+    },
+  );

@@ -57,6 +57,7 @@ export const setup = new Elysia({ name: "setup" })
           { name: "Genres", description: "Жанры" },
           { name: "Media", description: "Загрузка файлов" },
           { name: "Health", description: "Состояние сервиса" },
+          { name: "Admin", description: "Журнал действий администраторов" },
         ],
         components: {
           securitySchemes: {

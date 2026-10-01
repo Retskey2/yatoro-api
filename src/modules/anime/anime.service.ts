@@ -1,5 +1,6 @@
 import { isUniqueViolation } from "@/database/errors";
 import type { episodes } from "@/database/schema";
+import type { AuditContext } from "@/modules/audit/audit.repository";
 import { toGenre } from "@/modules/genres/genres.model";
 import { GenresRepository } from "@/modules/genres/genres.repository";
 import { BadRequestError, ConflictError, NotFoundError } from "@/shared/errors";
@@ -11,11 +12,15 @@ import {
   type CatalogSort,
   type CreateAnimeBody,
   toEpisode,
+  type UpdateAnimeBody,
+  type UpdateEpisodeBody,
 } from "./anime.model";
 import { AnimeRepository } from "./anime.repository";
 
 type CatalogQuery = typeof CatalogQuerySchema.static;
 type CreateAnimeDTO = typeof CreateAnimeBody.static;
+type UpdateAnimeDTO = typeof UpdateAnimeBody.static;
+type UpdateEpisodeDTO = typeof UpdateEpisodeBody.static;
 type CreateEpisodeDTO = Omit<
   typeof episodes.$inferInsert,
   "id" | "animeId" | "createdAt" | "updatedAt"
@@ -60,15 +65,8 @@ export class AnimeService {
     return toDetails(await AnimeRepository.getBySlug(slug));
   }
 
-  async createAnime({ genreIds = [], slug, ...data }: CreateAnimeDTO) {
-    const found = await GenresRepository.findByIds(genreIds);
-
-    if (found.length !== genreIds.length) {
-      const foundIds = new Set(found.map((genre) => genre.id));
-      throw new BadRequestError("Некоторые жанры не найдены", {
-        missingGenreIds: genreIds.filter((id) => !foundIds.has(id)),
-      });
-    }
+  async createAnime({ genreIds = [], slug, ...data }: CreateAnimeDTO, audit: AuditContext) {
+    const found = await findGenresOrThrow(genreIds);
 
     const finalSlug =
       slug ?? (slugify(data.titleRomaji ?? data.titleEn ?? data.title) || `anime-${Date.now()}`);
@@ -77,6 +75,7 @@ export class AnimeService {
       const created = await AnimeRepository.create(
         { ...data, slug: finalSlug, ...(data.airedOn ? seasonOf(data.airedOn) : {}) },
         genreIds,
+        audit,
       );
       const genresById = new Map(found.map((genre) => [genre.id, genre]));
       return {
@@ -94,13 +93,45 @@ export class AnimeService {
     }
   }
 
-  async addEpisodeToAnime(animeId: number, data: CreateEpisodeDTO) {
+  async updateAnime(
+    id: number,
+    { genreIds, airedOn, ...patch }: UpdateAnimeDTO,
+    audit: AuditContext,
+  ) {
+    if (genreIds) await findGenresOrThrow(genreIds);
+
+    // Year and season are derived from the premiere date, so they move together
+    const derived =
+      airedOn === undefined
+        ? {}
+        : { airedOn, ...(airedOn ? seasonOf(airedOn) : { year: null, season: null }) };
+
+    try {
+      const found = await AnimeRepository.update(id, { ...patch, ...derived }, genreIds, audit);
+      if (!found) throw new NotFoundError("Аниме не найдено");
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ConflictError(`Slug «${patch.slug}» уже занят — передайте другой slug`);
+      }
+      throw error;
+    }
+
+    return await this.getAnimeById(id);
+  }
+
+  async deleteAnime(id: number, audit: AuditContext) {
+    if (!(await AnimeRepository.delete(id, audit))) {
+      throw new NotFoundError("Аниме не найдено");
+    }
+  }
+
+  async addEpisodeToAnime(animeId: number, data: CreateEpisodeDTO, audit: AuditContext) {
     if (!(await AnimeRepository.exists(animeId))) {
       throw new NotFoundError("Аниме с таким ID не найдено");
     }
 
     try {
-      return toEpisode(await EpisodesRepository.create({ ...data, animeId }));
+      return toEpisode(await EpisodesRepository.create({ ...data, animeId }, audit));
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new ConflictError(`Серия ${data.number} у этого аниме уже существует`);
@@ -108,6 +139,43 @@ export class AnimeService {
       throw error;
     }
   }
+
+  async updateEpisode(
+    animeId: number,
+    number: number,
+    patch: UpdateEpisodeDTO,
+    audit: AuditContext,
+  ) {
+    try {
+      const updated = await EpisodesRepository.update(animeId, number, patch, audit);
+      if (!updated) throw new NotFoundError(`Серия ${number} не найдена`);
+      return toEpisode(updated);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ConflictError(`Серия ${patch.number} у этого аниме уже существует`);
+      }
+      throw error;
+    }
+  }
+
+  async deleteEpisode(animeId: number, number: number, audit: AuditContext) {
+    if (!(await EpisodesRepository.delete(animeId, number, audit))) {
+      throw new NotFoundError(`Серия ${number} не найдена`);
+    }
+  }
+}
+
+async function findGenresOrThrow(genreIds: number[]) {
+  const found = await GenresRepository.findByIds(genreIds);
+
+  if (found.length !== genreIds.length) {
+    const foundIds = new Set(found.map((genre) => genre.id));
+    throw new BadRequestError("Некоторые жанры не найдены", {
+      missingGenreIds: genreIds.filter((id) => !foundIds.has(id)),
+    });
+  }
+
+  return found;
 }
 
 function toDetails(row: Details | undefined) {

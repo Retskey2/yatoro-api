@@ -1,14 +1,16 @@
 import { and, asc, desc, eq, gte, inArray, lte, type SQL, sql } from "drizzle-orm";
-import { db } from "@/database";
+import { db, type Transaction } from "@/database";
 import {
   type AnimeKind,
   type AnimeStatus,
   anime,
   animeGenres,
+  episodes,
   genres,
   type NewAnime,
   type Season,
 } from "@/database/schema";
+import { type AuditContext, AuditRepository, diffFields } from "@/modules/audit/audit.repository";
 import type { Cursor } from "@/shared/http";
 import type { CatalogSort } from "./anime.model";
 
@@ -154,21 +156,129 @@ export const AnimeRepository = {
     return row !== undefined;
   },
 
-  create: async (data: NewAnime, genreIds: number[] = []) => {
+  create: async (data: NewAnime, genreIds: number[], audit: AuditContext) => {
     return await db.transaction(async (tx) => {
       const [created] = await tx.insert(anime).values(data).returning(summaryColumns);
       if (!created) throw new Error("Insert into anime returned no rows");
 
-      if (genreIds.length > 0) {
-        await tx
-          .insert(animeGenres)
-          .values(genreIds.map((genreId) => ({ animeId: created.id, genreId })));
-      }
+      await replaceGenres(tx, created.id, genreIds);
+
+      await AuditRepository.record(tx, {
+        ...audit,
+        action: "anime.create",
+        entityType: "anime",
+        entityId: created.id,
+        changes: diffFields({}, (await snapshot(tx, created.id)) ?? {}),
+      });
 
       return created;
     });
   },
+
+  /** `genreIds: undefined` keeps genres as they are, `[]` removes all. Returns false if not found */
+  update: async (
+    id: number,
+    patch: Partial<NewAnime>,
+    genreIds: number[] | undefined,
+    audit: AuditContext,
+  ) => {
+    return await db.transaction(async (tx) => {
+      // Row lock: a concurrent edit waits, so the logged diff is exactly what this request changed
+      const before = await snapshot(tx, id, { lock: true });
+      if (!before) return false;
+
+      if (Object.keys(patch).length > 0) {
+        await tx.update(anime).set(patch).where(eq(anime.id, id));
+      }
+      if (genreIds) await replaceGenres(tx, id, genreIds);
+
+      const changes = diffFields(before, (await snapshot(tx, id)) ?? {});
+      // A no-op request (same values) leaves no trace in the log
+      if (Object.keys(changes).length > 0) {
+        await AuditRepository.record(tx, {
+          ...audit,
+          action: "anime.update",
+          entityType: "anime",
+          entityId: id,
+          changes,
+        });
+      }
+
+      return true;
+    });
+  },
+
+  /** Episodes and genre links go with it (ON DELETE CASCADE). Returns false if not found */
+  delete: async (id: number, audit: AuditContext) => {
+    return await db.transaction(async (tx) => {
+      const before = await snapshot(tx, id, { lock: true });
+      if (!before) return false;
+
+      const [episodeCount] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(episodes)
+        .where(eq(episodes.animeId, id));
+
+      await tx.delete(anime).where(eq(anime.id, id));
+
+      await AuditRepository.record(tx, {
+        ...audit,
+        action: "anime.delete",
+        entityType: "anime",
+        entityId: id,
+        changes: diffFields({ ...before, episodeCount: episodeCount?.count ?? 0 }, {}),
+      });
+
+      return true;
+    });
+  },
 };
+
+// What the audit log records about an anime: everything an admin or the import can change
+const snapshotColumns = {
+  slug: anime.slug,
+  title: anime.title,
+  titleEn: anime.titleEn,
+  titleJa: anime.titleJa,
+  titleRomaji: anime.titleRomaji,
+  synonyms: anime.synonyms,
+  description: anime.description,
+  posterUrl: anime.posterUrl,
+  kind: anime.kind,
+  status: anime.status,
+  ageRating: anime.ageRating,
+  episodesTotal: anime.episodesTotal,
+  episodesAired: anime.episodesAired,
+  durationMin: anime.durationMin,
+  score: anime.score,
+  airedOn: anime.airedOn,
+  releasedOn: anime.releasedOn,
+  year: anime.year,
+  season: anime.season,
+  shikimoriId: anime.shikimoriId,
+};
+
+async function snapshot(tx: Transaction, id: number, options: { lock?: boolean } = {}) {
+  const query = tx.select(snapshotColumns).from(anime).where(eq(anime.id, id));
+  const [row] = options.lock ? await query.for("update") : await query;
+  if (!row) return undefined;
+
+  const genreRows = await tx
+    .select({ slug: genres.slug })
+    .from(animeGenres)
+    .innerJoin(genres, eq(genres.id, animeGenres.genreId))
+    .where(eq(animeGenres.animeId, id))
+    .orderBy(asc(genres.slug));
+
+  return { ...row, genres: genreRows.map((genre) => genre.slug) };
+}
+
+async function replaceGenres(tx: Transaction, animeId: number, genreIds: number[]) {
+  await tx.delete(animeGenres).where(eq(animeGenres.animeId, animeId));
+  if (genreIds.length > 0) {
+    await tx.insert(animeGenres).values(genreIds.map((genreId) => ({ animeId, genreId })));
+  }
+}
 
 function findDetails(where: SQL) {
   return db.query.anime.findFirst({
