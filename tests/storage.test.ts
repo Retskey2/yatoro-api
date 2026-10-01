@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { ServiceUnavailableError } from "@/shared/errors";
-import { bucketCorsRules, isStorageReachable, requireStorage, storage } from "@/shared/storage";
+import { bucketCorsRules, getStorage, isStorageReachable, requireStorage } from "@/shared/storage";
 import { client } from "./helpers";
 
 // Tests run without S3: the real storage is exercised by the docker compose job in CI
 
 describe("storage is optional", () => {
   it("is disabled when S3_ENDPOINT is not set", async () => {
-    expect(storage).toBeNull();
+    expect(getStorage()).toBeNull();
     expect(await isStorageReachable()).toBeNull();
   });
 

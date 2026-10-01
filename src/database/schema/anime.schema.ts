@@ -9,6 +9,7 @@ import {
   pgTable,
   primaryKey,
   real,
+  smallint,
   text,
   unique,
   varchar,
@@ -29,10 +30,14 @@ export type AgeRating = (typeof AGE_RATINGS)[number];
 export const SEASONS = ["WINTER", "SPRING", "SUMMER", "FALL"] as const;
 export type Season = (typeof SEASONS)[number];
 
+export const VIDEO_STATUSES = ["NONE", "UPLOADING", "PROCESSING", "READY", "FAILED"] as const;
+export type VideoStatus = (typeof VIDEO_STATUSES)[number];
+
 export const animeStatusEnum = pgEnum("anime_status", ANIME_STATUSES);
 export const animeKindEnum = pgEnum("anime_kind", ANIME_KINDS);
 export const ageRatingEnum = pgEnum("age_rating", AGE_RATINGS);
 export const seasonEnum = pgEnum("season", SEASONS);
+export const videoStatusEnum = pgEnum("video_status", VIDEO_STATUSES);
 
 const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
 
@@ -109,13 +114,21 @@ export const episodes = pgTable(
       .references(() => anime.id, { onDelete: "cascade" }),
     number: integer().notNull(),
     title: varchar({ length: 255 }),
-    // Filled in once the video is uploaded (and, later, transcoded)
+    // External video link set by hand (before the HLS pipeline); uploaded videos use the fields below
     videoUrl: text(),
+    // Video pipeline: NONE → UPLOADING → PROCESSING → READY | FAILED (see docs/adr/0002)
+    videoStatus: videoStatusEnum().notNull().default("NONE"),
+    videoSourceKey: text(),
+    videoHlsPrefix: text(),
+    videoProgress: smallint().notNull().default(0),
+    videoDurationSec: real(),
+    videoError: text(),
     ...timestamps,
   },
   (t) => [
     unique("episodes_anime_number_unique").on(t.animeId, t.number),
     check("episodes_number_positive", sql`${t.number} > 0`),
+    check("episodes_video_progress_range", sql`${t.videoProgress} between 0 and 100`),
   ],
 );
 

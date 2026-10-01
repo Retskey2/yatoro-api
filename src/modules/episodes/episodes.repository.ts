@@ -2,15 +2,18 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/database";
 import { type Episode, episodes } from "@/database/schema";
 import { type AuditContext, AuditRepository, diffFields } from "@/modules/audit/audit.repository";
+import { scheduleEpisodeFilesCleanup } from "@/modules/video/video.cleanup";
 
 type EpisodePatch = Partial<Pick<Episode, "number" | "title" | "videoUrl">>;
 
 // The audit log stores what matters about an episode, without timestamps
-const loggable = ({ animeId, number, title, videoUrl }: Episode) => ({
+const loggable = ({ animeId, number, title, videoUrl, videoStatus, videoSourceKey }: Episode) => ({
   animeId,
   number,
   title,
   videoUrl,
+  videoStatus,
+  videoSourceKey,
 });
 
 const byNumber = (animeId: number, number: number) =>
@@ -66,7 +69,7 @@ export const EpisodesRepository = {
     });
   },
 
-  /** Returns false if the episode does not exist */
+  /** Its files are scheduled for deletion in the same transaction. Returns false if not found */
   delete: async (animeId: number, number: number, audit: AuditContext) => {
     return await db.transaction(async (tx) => {
       const [before] = await tx
@@ -77,6 +80,7 @@ export const EpisodesRepository = {
       if (!before) return false;
 
       await tx.delete(episodes).where(eq(episodes.id, before.id));
+      await scheduleEpisodeFilesCleanup(tx, [before.id]);
       await AuditRepository.record(tx, {
         ...audit,
         action: "episode.delete",

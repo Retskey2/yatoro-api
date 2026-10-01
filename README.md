@@ -76,7 +76,7 @@ docker compose up --build
 2. **PostgreSQL 18** — миграции на пустой базе, двойной seed, запуск сервера и смоук-тест API (включая вход админа);
 3. **Docker image** — сборка production-образа;
 4. **Full stack** — `docker compose up` целиком: здоровье базы и хранилища, CORS бакета, путь «транзакция → очередь → воркер»,
-   корректная остановка воркера, идемпотентный перезапуск.
+   сквозная загрузка видео (`scripts/e2e-video.ts`), корректная остановка воркера, идемпотентный перезапуск.
 
 ## API
 
@@ -93,7 +93,8 @@ docker compose up --build
 | `GET` | `/api/admin/audit-log?entityType=&entityId=&actorId=&action=&cursor=` | ADMIN |
 | `GET` / `POST` | `/api/genres` | все / ADMIN |
 | `POST` | `/api/media/images` | авторизованные (постеры — ADMIN) |
-| `POST` | `/api/media/videos` | ADMIN |
+| `POST` | `/api/anime/:id/episodes/:number/video/upload` → подписанная ссылка, файл идёт прямо в хранилище | ADMIN |
+| `POST` | `/api/anime/:id/episodes/:number/video/complete` → проверка содержимого, постановка на перекодирование | ADMIN |
 
 Ошибки всегда приходят в одном формате, внутренние детали наружу не попадают:
 

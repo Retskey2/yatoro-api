@@ -6,6 +6,7 @@ import {
   type Anime,
   type Episode as EpisodeRow,
   SEASONS,
+  VIDEO_STATUSES,
 } from "@/database/schema";
 import { Genre } from "@/modules/genres/genres.model";
 import { StringEnum } from "@/shared/http";
@@ -47,12 +48,20 @@ export const AnimeSummary = t.Object({
   genres: t.Array(GenreRef),
 });
 
+export const EpisodeVideo = t.Object({
+  status: t.UnionEnum(VIDEO_STATUSES),
+  progress: t.Integer({ minimum: 0, maximum: 100 }),
+  durationSec: t.Nullable(t.Number()),
+  error: t.Nullable(t.String()),
+});
+
 export const Episode = t.Object({
   id: t.Integer(),
   animeId: t.Integer(),
   number: t.Integer(),
   title: t.Nullable(t.String()),
   videoUrl: t.Nullable(t.String()),
+  video: EpisodeVideo,
   createdAt: t.Date(),
 });
 
@@ -175,5 +184,11 @@ export const toEpisode = (row: EpisodeRow) => ({
   number: row.number,
   title: row.title,
   videoUrl: row.videoUrl,
+  video: {
+    status: row.videoStatus,
+    progress: row.videoProgress,
+    durationSec: row.videoDurationSec,
+    error: row.videoError,
+  },
   createdAt: row.createdAt,
 });

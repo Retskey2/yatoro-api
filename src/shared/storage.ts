@@ -10,19 +10,93 @@ import { ServiceUnavailableError } from "./errors";
 import { logger } from "./logger";
 
 /**
- * S3-compatible object storage (see docs/adr/0002-video-pipeline-infrastructure.md).
- *
- * Two clients on purpose: inside Docker the API reaches the storage as `seaweedfs:8333`,
- * while browsers reach it as `localhost:9000`. The host is part of a presigned URL's signature,
- * so URLs handed to browsers are signed by `public`; everything server-side goes through `internal`.
+ * What the video pipeline needs from S3-compatible object storage
+ * (see docs/adr/0002-video-pipeline-infrastructure.md). Kept small on purpose:
+ * tests swap in an in-memory fake through `setStorage`.
  */
-export interface Storage {
-  bucket: string;
-  internal: Bun.S3Client;
-  public: Bun.S3Client;
+export interface ObjectStorage {
+  /**
+   * A URL a browser can PUT the file to. The signature covers only the host and the key:
+   * the content type and size are NOT enforced, so the uploaded object must be verified.
+   */
+  presignUpload(key: string, expiresInSeconds: number): string;
+  presignDownload(key: string, expiresInSeconds: number): string;
+  /** `null` if the object does not exist */
+  stat(key: string): Promise<{ size: number } | null>;
+  /** The first bytes of the object (ranged GET) — enough to detect the real file type */
+  readHead(key: string, bytes: number): Promise<Uint8Array>;
+  write(key: string, data: Blob | Uint8Array | string, contentType?: string): Promise<void>;
+  delete(key: string): Promise<void>;
+  /** Deletes every object under the prefix and returns how many were deleted */
+  deletePrefix(prefix: string): Promise<number>;
+  ping(): Promise<boolean>;
 }
 
-function createStorage(): Storage | null {
+/**
+ * Two clients on purpose: inside Docker the API reaches the storage as `seaweedfs:8333`,
+ * while browsers reach it as `localhost:9000`. The host is part of a presigned URL's signature,
+ * so URLs handed to browsers are signed by `browser`; everything server-side goes through `internal`.
+ */
+class S3ObjectStorage implements ObjectStorage {
+  constructor(
+    private readonly internal: Bun.S3Client,
+    private readonly browser: Bun.S3Client,
+  ) {}
+
+  presignUpload(key: string, expiresInSeconds: number) {
+    return this.browser.presign(key, { method: "PUT", expiresIn: expiresInSeconds });
+  }
+
+  presignDownload(key: string, expiresInSeconds: number) {
+    return this.browser.presign(key, { method: "GET", expiresIn: expiresInSeconds });
+  }
+
+  async stat(key: string) {
+    try {
+      const { size } = await this.internal.stat(key);
+      return { size };
+    } catch (error) {
+      if ((error as { code?: string }).code === "NoSuchKey") return null;
+      throw error;
+    }
+  }
+
+  async readHead(key: string, bytes: number) {
+    return new Uint8Array(await this.internal.file(key).slice(0, bytes).arrayBuffer());
+  }
+
+  async write(key: string, data: Blob | Uint8Array | string, contentType?: string) {
+    await this.internal.write(key, data, contentType ? { type: contentType } : undefined);
+  }
+
+  async delete(key: string) {
+    await this.internal.delete(key);
+  }
+
+  async deletePrefix(prefix: string) {
+    let deleted = 0;
+    let continuationToken: string | undefined;
+
+    do {
+      const page = await this.internal.list({ prefix, continuationToken, maxKeys: 1000 });
+      const keys = (page.contents ?? []).map((object) => object.key);
+      await Promise.all(keys.map((key) => this.internal.delete(key)));
+      deleted += keys.length;
+      continuationToken = page.isTruncated ? page.nextContinuationToken : undefined;
+    } while (continuationToken);
+
+    return deleted;
+  }
+
+  async ping() {
+    return await this.internal.list({ maxKeys: 1 }).then(
+      () => true,
+      () => false,
+    );
+  }
+}
+
+function createStorage(): ObjectStorage | null {
   if (!env.S3_ENDPOINT || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY) return null;
 
   const client = (endpoint: string) =>
@@ -34,33 +108,34 @@ function createStorage(): Storage | null {
       secretAccessKey: env.S3_SECRET_ACCESS_KEY,
     });
 
-  return {
-    bucket: env.S3_BUCKET,
-    internal: client(env.S3_ENDPOINT),
-    public: client(env.S3_PUBLIC_ENDPOINT ?? env.S3_ENDPOINT),
-  };
+  return new S3ObjectStorage(
+    client(env.S3_ENDPOINT),
+    client(env.S3_PUBLIC_ENDPOINT ?? env.S3_ENDPOINT),
+  );
 }
 
-export const storage = createStorage();
+let current = createStorage();
 
-export function requireStorage(): Storage {
-  if (!storage) {
+export const getStorage = (): ObjectStorage | null => current;
+
+/** Tests swap in an in-memory fake (and back to `null`) */
+export function setStorage(next: ObjectStorage | null) {
+  current = next;
+}
+
+export function requireStorage(): ObjectStorage {
+  if (!current) {
     throw new ServiceUnavailableError("Хранилище файлов не настроено (S3_ENDPOINT)");
   }
-  return storage;
+  return current;
 }
 
 /** `true` if the bucket answers within the timeout; `null` if storage is not configured */
 export async function isStorageReachable(timeoutMs = 2_000): Promise<boolean | null> {
-  if (!storage) return null;
+  if (!current) return null;
 
   const timeout = new Promise<false>((resolve) => setTimeout(() => resolve(false), timeoutMs));
-  const probe = storage.internal.list({ maxKeys: 1 }).then(
-    () => true,
-    () => false,
-  );
-
-  return await Promise.race([probe, timeout]);
+  return await Promise.race([current.ping(), timeout]);
 }
 
 /** Browsers upload straight to the bucket, so it must allow our frontends' origins */

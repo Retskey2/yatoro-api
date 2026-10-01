@@ -4,3 +4,6 @@
 *.webp binary
 *.avif binary
 *.mp4 binary
+*.webm binary
+*.mkv binary
+*.mov binary

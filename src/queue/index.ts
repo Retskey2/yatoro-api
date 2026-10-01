@@ -7,12 +7,15 @@ import { createBoss, type QueueRole } from "./connection";
 /** Job queue on PostgreSQL (pg-boss) — why not BullMQ/Redis: docs/adr/0002-video-pipeline-infrastructure.md */
 export const QUEUES = {
   transcode: "video.transcode",
+  cleanup: "storage.cleanup",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
 export interface JobData {
   "video.transcode": { episodeId: number; sourceKey: string };
+  /** Objects that lost their owner: deleted episodes, replaced sources */
+  "storage.cleanup": { keys?: string[]; prefixes?: string[] };
 }
 
 type QueueOptions = NonNullable<Parameters<PgBoss["createQueue"]>[1]>;
@@ -24,6 +27,12 @@ const QUEUE_OPTIONS: Record<QueueName, QueueOptions> = {
     retryBackoff: true,
     // A long episode on a slow machine takes a while; past this the attempt is considered lost
     expireInSeconds: 2 * 60 * 60,
+  },
+  [QUEUES.cleanup]: {
+    // Deleting is idempotent, so retry generously: storage may be briefly unavailable
+    retryLimit: 5,
+    retryDelay: 60,
+    retryBackoff: true,
   },
 };
 

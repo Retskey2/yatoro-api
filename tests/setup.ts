@@ -39,3 +39,8 @@ mock.module("@/queue/connection", () => ({
   createBoss: () =>
     new PgBoss({ db: fromPglite(client), backend: "pglite", supervise: false, schedule: false }),
 }));
+
+// Started up front, as in src/index.ts: PGlite has a single connection, so starting the queue
+// lazily inside a request transaction would wait for that very transaction to finish
+const { startJobQueue } = await import("../src/queue");
+await startJobQueue();
