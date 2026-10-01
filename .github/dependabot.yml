@@ -1,0 +1,79 @@
+# Weekly dependency updates. Every PR has to pass the required CI checks before merge
+# (branch ruleset on main), so a broken update never lands silently.
+version: 2
+
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Moscow
+    # Supply-chain hygiene: a compromised release is usually yanked within days
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-patch-days: 3
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Packages that must move together
+      elysia:
+        patterns: ["elysia", "@elysiajs/*"]
+      drizzle:
+        patterns: ["drizzle-orm", "drizzle-kit"]
+      pglite:
+        patterns: ["@electric-sql/*"]
+      # Everything else: one PR for minor/patch bumps
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Planned migrations, done by hand when stable (see docs/ROADMAP.md, phase 6)
+      - dependency-name: "elysia"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@elysiajs/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "drizzle-orm"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "drizzle-kit"
+        update-types: ["version-update:semver-major"]
+      # 5.x requires Elysia 2 — upgrade together with Elysia
+      - dependency-name: "elysia-rate-limit"
+        update-types: ["version-update:semver-major"]
+      # With @types/node 25+, bun-types 1.4 hides the process.on/once overloads
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Base image of the Dockerfile (oven/bun) and PostgreSQL in docker-compose
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(docker)"
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(docker)"
+    ignore:
+      # Major PostgreSQL upgrades need a data migration, not a version bump
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
