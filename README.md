@@ -42,7 +42,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Поднимает PostgreSQL 18, S3-хранилище SeaweedFS и API. При старте API применяет миграции, создаёт
+Поднимает PostgreSQL 18, S3-хранилище SeaweedFS, API и воркер с ffmpeg (очередь задач — pg-boss на PostgreSQL). При старте API применяет миграции, создаёт
 демо-данные и бакет с CORS (повторный запуск ничего не дублирует).
 
 | Что | Адрес |
@@ -58,6 +58,7 @@ docker compose up --build
 | Команда | Что делает |
 |---|---|
 | `bun run dev` | Сервер с перезапуском при изменениях |
+| `bun run worker` | Фоновый воркер (нужен ffmpeg в PATH; в Docker он уже есть) |
 | `bun run check` | Линтер + проверка типов + тесты (то же, что job `check` в CI) |
 | `bun test` | Тесты на настоящем Postgres (PGlite в памяти) |
 | `bun run db:dev` | Локальная база без Docker |
@@ -74,7 +75,8 @@ docker compose up --build
 1. **Lint · Types · Tests** — Biome, `tsc`, `bun test`;
 2. **PostgreSQL 18** — миграции на пустой базе, двойной seed, запуск сервера и смоук-тест API (включая вход админа);
 3. **Docker image** — сборка production-образа;
-4. **Full stack** — `docker compose up` целиком: здоровье базы и хранилища, CORS бакета, идемпотентный перезапуск.
+4. **Full stack** — `docker compose up` целиком: здоровье базы и хранилища, CORS бакета, путь «транзакция → очередь → воркер»,
+   корректная остановка воркера, идемпотентный перезапуск.
 
 ## API
 
