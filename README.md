@@ -35,13 +35,23 @@ bun run dev
 - Документация (OpenAPI/Scalar): http://localhost:5084/docs
 - Состояние: http://localhost:5084/health
 
-### С Docker
+### Весь стек в Docker
 
 ```bash
-JWT_SECRET=$(openssl rand -base64 48) docker compose up --build
+cp .env.example .env
+docker compose up --build
 ```
 
-Поднимает PostgreSQL 18 и API; миграции применяются при старте контейнера.
+Поднимает PostgreSQL 18, S3-хранилище SeaweedFS и API. При старте API применяет миграции, создаёт
+демо-данные и бакет с CORS (повторный запуск ничего не дублирует).
+
+| Что | Адрес |
+|---|---|
+| API и документация | http://localhost:5084/docs |
+| S3 (SeaweedFS) — сюда браузер загружает видео | http://localhost:9000 |
+| PostgreSQL | `localhost:5433` (не мешает `bun run db:dev` на 5432) |
+
+Остановить: `docker compose down` (данные сохранятся), с удалением данных — `docker compose down -v`.
 
 ## Скрипты
 
@@ -63,13 +73,14 @@ JWT_SECRET=$(openssl rand -base64 48) docker compose up --build
 
 1. **Lint · Types · Tests** — Biome, `tsc`, `bun test`;
 2. **PostgreSQL 18** — миграции на пустой базе, двойной seed, запуск сервера и смоук-тест API (включая вход админа);
-3. **Docker image** — сборка production-образа.
+3. **Docker image** — сборка production-образа;
+4. **Full stack** — `docker compose up` целиком: здоровье базы и хранилища, CORS бакета, идемпотентный перезапуск.
 
 ## API
 
 | Метод | Путь | Доступ |
 |---|---|---|
-| `GET` | `/health` | все |
+| `GET` | `/health` (база, хранилище) | все |
 | `POST` | `/api/auth/register`, `/api/auth/login` | все (строгий rate limit) |
 | `GET` | `/api/users/me` | авторизованные |
 | `GET` | `/api/users/:id` | все (публичный профиль, без email) |

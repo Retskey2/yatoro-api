@@ -2,6 +2,13 @@ import { app } from "./app";
 import { env } from "./config/env";
 import { client } from "./database";
 import { logger } from "./shared/logger";
+import { ensureBucket } from "./shared/storage";
+
+// When storage is configured, the bucket exists before the first request (no-op otherwise).
+// A failure is logged, not fatal: /health reports the storage as down.
+await ensureBucket(env.CORS_ORIGINS).catch((error) =>
+  logger.error({ err: error }, "storage bucket setup failed"),
+);
 
 app.listen(env.PORT, (server) => {
   const url = `http://${server.hostname}:${server.port}`;

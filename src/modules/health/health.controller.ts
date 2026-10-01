@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { db } from "@/database";
+import { isStorageReachable } from "@/shared/storage";
 
 const DB_TIMEOUT_MS = 2_000;
 
@@ -18,6 +19,7 @@ async function isDatabaseReachable(): Promise<boolean> {
 const HealthResponse = t.Object({
   status: t.UnionEnum(["ok", "degraded"]),
   database: t.UnionEnum(["up", "down"]),
+  storage: t.UnionEnum(["up", "down", "disabled"]),
   uptime: t.Number(),
 });
 
@@ -25,16 +27,29 @@ const HealthResponse = t.Object({
 export const healthPlugin = new Elysia({ tags: ["Health"] }).get(
   "/health",
   async ({ status }) => {
-    const uptime = Math.round(process.uptime());
+    const [databaseUp, storageUp] = await Promise.all([
+      isDatabaseReachable(),
+      isStorageReachable(),
+    ]);
 
-    if (await isDatabaseReachable()) {
-      return { status: "ok" as const, database: "up" as const, uptime };
-    }
+    const body = {
+      database: databaseUp ? ("up" as const) : ("down" as const),
+      // Storage is optional: not configured is fine, configured but unreachable is not
+      storage:
+        storageUp === null
+          ? ("disabled" as const)
+          : storageUp
+            ? ("up" as const)
+            : ("down" as const),
+      uptime: Math.round(process.uptime()),
+    };
 
-    return status(503, { status: "degraded" as const, database: "down" as const, uptime });
+    return databaseUp && storageUp !== false
+      ? { status: "ok" as const, ...body }
+      : status(503, { status: "degraded" as const, ...body });
   },
   {
     response: { 200: HealthResponse, 503: HealthResponse },
-    detail: { summary: "Состояние сервиса и базы данных" },
+    detail: { summary: "Состояние сервиса, базы данных и хранилища" },
   },
 );

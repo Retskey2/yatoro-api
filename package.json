@@ -21,6 +21,7 @@
     "bench:catalog": "bun run scripts/bench-catalog.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1144.0",
     "@elysiajs/cors": "^1.4.2",
     "@elysiajs/jwt": "^1.4.2",
     "@elysiajs/openapi": "^1.4.16",

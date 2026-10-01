@@ -1,5 +1,12 @@
-# Full stack locally:  JWT_SECRET=... docker compose up --build
-# SeaweedFS (S3) and the transcode worker join in phase 4, see docs/adr/0002-video-pipeline-infrastructure.md
+# The whole stack with one command (reads JWT_SECRET and SEED_ADMIN_* from .env):
+#
+#   cp .env.example .env && docker compose up --build
+#
+#   API + docs     http://localhost:5084/docs
+#   S3 (SeaweedFS) http://localhost:9000      — browsers upload videos here via presigned URLs
+#   PostgreSQL     localhost:5433             — 5433, so it does not clash with `bun run db:dev`
+#
+# Storage and queue choices: docs/adr/0002-video-pipeline-infrastructure.md
 
 services:
   postgres:
@@ -9,7 +16,7 @@ services:
       POSTGRES_PASSWORD: yatoro
       POSTGRES_DB: yatoro
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
@@ -18,16 +25,51 @@ services:
       timeout: 3s
       retries: 10
 
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
+    command: server -s3 -s3.config=/etc/seaweedfs/s3.json -dir=/data
+    ports:
+      - "9000:8333"
+    volumes:
+      # Local development credentials only, see the file
+      - ./docker/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+      - seaweedfs:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8333/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   api:
     build: .
     depends_on:
       postgres:
         condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    # Migrations + idempotent demo data on every start, then the server
+    command:
+      [
+        "sh",
+        "-c",
+        "bun run src/database/migrate.ts && bun run src/database/seed.ts && exec bun run src/index.ts",
+      ]
     environment:
       DATABASE_URL: postgresql://yatoro:yatoro@postgres:5432/yatoro
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET (32+ characters) in the environment or .env}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET (32+ characters) in .env — see .env.example}
+      # The demo page is served by the API itself, so its origin must be allowed by the bucket
+      CORS_ORIGINS: http://localhost:3000,http://localhost:5084
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@yatoro.local}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-change-me-admin-password}
+      # The API talks to the storage inside the Docker network...
+      S3_ENDPOINT: http://seaweedfs:8333
+      # ...but signs URLs for the address browsers use
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      S3_ACCESS_KEY_ID: yatoro-dev
+      S3_SECRET_ACCESS_KEY: yatoro-dev-secret-change-me
+      S3_BUCKET: yatoro-media
     ports:
       - "5084:5084"
     volumes:
@@ -35,4 +77,5 @@ services:
 
 volumes:
   pgdata:
+  seaweedfs:
   uploads:

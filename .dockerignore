@@ -13,3 +13,4 @@ scripts
 *.log
 Dockerfile
 docker-compose.yml
+docker

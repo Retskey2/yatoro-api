@@ -56,6 +56,12 @@ export class ConflictError extends AppError {
   }
 }
 
+export class ServiceUnavailableError extends AppError {
+  constructor(message = "Сервис временно недоступен") {
+    super(503, "SERVICE_UNAVAILABLE", message);
+  }
+}
+
 export class TooManyRequestsError extends AppError {
   constructor(message = "Слишком много запросов, попробуйте позже") {
     super(429, "TOO_MANY_REQUESTS", message);
