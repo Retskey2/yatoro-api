@@ -9,7 +9,9 @@ import {
   VIDEO_STATUSES,
 } from "@/database/schema";
 import { Genre } from "@/modules/genres/genres.model";
+import { PLAYBACK_URL_TTL_SECONDS } from "@/modules/video/video.model";
 import { StringEnum } from "@/shared/http";
+import { getStorage } from "@/shared/storage";
 
 export const CATALOG_SORTS = ["relevance", "popular", "score", "newest", "title"] as const;
 export type CatalogSort = (typeof CATALOG_SORTS)[number];
@@ -53,6 +55,9 @@ export const EpisodeVideo = t.Object({
   progress: t.Integer({ minimum: 0, maximum: 100 }),
   durationSec: t.Nullable(t.Number()),
   error: t.Nullable(t.String()),
+  /** HLS entry point for the player, once READY */
+  playbackUrl: t.Nullable(t.String()),
+  posterUrl: t.Nullable(t.String()),
 });
 
 export const Episode = t.Object({
@@ -178,6 +183,17 @@ export const toAnimeSummary = (row: Anime, genres: GenreRefRow[] = []) => ({
   genres,
 });
 
+function playback(row: EpisodeRow) {
+  if (row.videoStatus !== "READY" || !row.videoHlsPrefix)
+    return { playbackUrl: null, posterUrl: null };
+  return {
+    playbackUrl: `/api/anime/${row.animeId}/episodes/${row.number}/video/master.m3u8`,
+    posterUrl:
+      getStorage()?.presignDownload(`${row.videoHlsPrefix}poster.jpg`, PLAYBACK_URL_TTL_SECONDS) ??
+      null,
+  };
+}
+
 export const toEpisode = (row: EpisodeRow) => ({
   id: row.id,
   animeId: row.animeId,
@@ -189,6 +205,7 @@ export const toEpisode = (row: EpisodeRow) => ({
     progress: row.videoProgress,
     durationSec: row.videoDurationSec,
     error: row.videoError,
+    ...playback(row),
   },
   createdAt: row.createdAt,
 });

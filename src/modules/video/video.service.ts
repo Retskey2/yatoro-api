@@ -3,9 +3,11 @@ import { toEpisode } from "@/modules/anime/anime.model";
 import type { AuditContext } from "@/modules/audit/audit.repository";
 import { BadRequestError, ConflictError, NotFoundError } from "@/shared/errors";
 import { requireStorage } from "@/shared/storage";
+import { signPlaylist } from "./hls";
 import {
   ACCEPTED_VIDEO_TYPES,
   MAX_SOURCE_BYTES,
+  PLAYBACK_URL_TTL_SECONDS,
   SNIFF_BYTES,
   storageKeys,
   UPLOAD_URL_TTL_SECONDS,
@@ -68,6 +70,37 @@ export class VideoService {
     }
 
     return toEpisode(updated);
+  }
+
+  /** The master playlist as produced by ffmpeg: it references renditions by relative paths */
+  async masterPlaylist(animeId: number, number: number) {
+    const { prefix } = await this.readyVideo(animeId, number);
+    const playlist = await requireStorage().readText(`${prefix}master.m3u8`);
+    if (!playlist) throw new NotFoundError("Видео серии не найдено в хранилище");
+    return playlist;
+  }
+
+  /**
+   * A rendition playlist with every segment (and the fMP4 init segment) replaced by a presigned
+   * URL: the bucket stays private, the bytes go from the storage straight to the player.
+   */
+  async renditionPlaylist(animeId: number, number: number, rendition: string) {
+    const { prefix } = await this.readyVideo(animeId, number);
+    const storage = requireStorage();
+    const playlist = await storage.readText(`${prefix}${rendition}/index.m3u8`);
+    if (!playlist) throw new NotFoundError(`Качество ${rendition} не найдено`);
+
+    return signPlaylist(playlist, (path) =>
+      storage.presignDownload(`${prefix}${rendition}/${path}`, PLAYBACK_URL_TTL_SECONDS),
+    );
+  }
+
+  private async readyVideo(animeId: number, number: number) {
+    const episode = await VideoRepository.find(animeId, number);
+    if (episode?.videoStatus !== "READY" || !episode.videoHlsPrefix) {
+      throw new NotFoundError("Видео этой серии ещё не готово");
+    }
+    return { prefix: episode.videoHlsPrefix };
   }
 
   private async findProblem(sourceKey: string, size: number): Promise<string | null> {

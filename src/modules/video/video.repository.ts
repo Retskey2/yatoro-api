@@ -100,6 +100,72 @@ export const VideoRepository = {
     });
   },
 
+  // ---- transitions made by the worker (a system actor: not in the admin audit log) ----
+
+  /** Only while this exact source is still being processed: a stale job must not touch the episode */
+  setProgress: async (episodeId: number, sourceKey: string, progress: number) => {
+    await db
+      .update(episodes)
+      .set({ videoProgress: progress })
+      .where(
+        and(
+          eq(episodes.id, episodeId),
+          eq(episodes.videoStatus, "PROCESSING"),
+          eq(episodes.videoSourceKey, sourceKey),
+        ),
+      );
+  },
+
+  /**
+   * PROCESSING → READY. The previous HLS version (if any) is scheduled for deletion in the same
+   * transaction. Returns false if the upload was replaced meanwhile — the caller then deletes
+   * what it has just produced.
+   */
+  markReady: async (
+    episodeId: number,
+    sourceKey: string,
+    result: { hlsPrefix: string; durationSec: number },
+  ) => {
+    return await db.transaction(async (tx) => {
+      const [before] = await tx
+        .select()
+        .from(episodes)
+        .where(eq(episodes.id, episodeId))
+        .for("update");
+      if (before?.videoStatus !== "PROCESSING" || before.videoSourceKey !== sourceKey) return false;
+
+      await tx
+        .update(episodes)
+        .set({
+          videoStatus: "READY",
+          videoProgress: 100,
+          videoHlsPrefix: result.hlsPrefix,
+          videoDurationSec: result.durationSec,
+          videoError: null,
+        })
+        .where(eq(episodes.id, episodeId));
+
+      if (before.videoHlsPrefix && before.videoHlsPrefix !== result.hlsPrefix) {
+        await enqueue(tx, QUEUES.cleanup, { prefixes: [before.videoHlsPrefix] });
+      }
+      return true;
+    });
+  },
+
+  /** PROCESSING → FAILED after the last attempt */
+  markFailed: async (episodeId: number, sourceKey: string, reason: string) => {
+    await db
+      .update(episodes)
+      .set({ videoStatus: "FAILED", videoError: reason.slice(0, 500) })
+      .where(
+        and(
+          eq(episodes.id, episodeId),
+          eq(episodes.videoStatus, "PROCESSING"),
+          eq(episodes.videoSourceKey, sourceKey),
+        ),
+      );
+  },
+
   /** UPLOADING → FAILED with the reason; the rejected object itself is deleted by the caller */
   markRejected: async (
     episodeId: number,

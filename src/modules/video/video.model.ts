@@ -35,4 +35,9 @@ export const UploadTicket = t.Object({
 export const storageKeys = {
   episodePrefix: (episodeId: number) => `episodes/${episodeId}/`,
   source: (episodeId: number) => `episodes/${episodeId}/source/${Bun.randomUUIDv7()}`,
+  /** A new version per transcode: the old one keeps playing until the new one is complete */
+  hls: (episodeId: number) => `episodes/${episodeId}/hls/${Bun.randomUUIDv7()}/`,
 };
+
+/** Presigned URLs in playlists must outlive a viewing session: a VOD player loads the playlist once */
+export const PLAYBACK_URL_TTL_SECONDS = 6 * 60 * 60;

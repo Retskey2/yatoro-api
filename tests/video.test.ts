@@ -5,6 +5,7 @@ import type { PgBoss } from "pg-boss";
 import { app } from "@/app";
 import { db } from "@/database";
 import { auditLog, episodes } from "@/database/schema";
+import { VideoRepository } from "@/modules/video/video.repository";
 import { QUEUES, startJobQueue } from "@/queue";
 import { setStorage } from "@/shared/storage";
 import { FakeStorage } from "./fakes/storage";
@@ -210,5 +211,125 @@ describe("files of deleted episodes", () => {
 
     const [cleanup] = await boss.fetch<{ prefixes: string[] }>(QUEUES.cleanup);
     expect(cleanup?.data.prefixes.toSorted()).toEqual(ids.toSorted());
+  });
+});
+
+describe("playback (HLS)", () => {
+  const prefix = (id: number) => `episodes/${id}/hls/v1/`;
+  const master =
+    "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1020800,RESOLUTION=640x360\n360p/index.m3u8\n";
+  const rendition =
+    '#EXTM3U\n#EXT-X-MAP:URI="init_0.mp4"\n#EXTINF:6.000000,\nseg_000.m4s\n#EXT-X-ENDLIST\n';
+
+  const makeReady = async (number = 1) => {
+    const episode = await episodeRow(number);
+    const id = episode?.id ?? 0;
+    await storage.write(`${prefix(id)}master.m3u8`, master);
+    await storage.write(`${prefix(id)}360p/index.m3u8`, rendition);
+    await db
+      .update(episodes)
+      .set({ videoStatus: "READY", videoHlsPrefix: prefix(id), videoDurationSec: 12 })
+      .where(eq(episodes.id, id));
+    return id;
+  };
+
+  const get = (path: string) => app.handle(new Request(`http://localhost${path}`));
+  const base = () => `/api/anime/${animeId}/episodes/1/video`;
+
+  it("serves the master playlist as produced by ffmpeg", async () => {
+    await makeReady();
+    const response = await get(`${base()}/master.m3u8`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/vnd.apple.mpegurl");
+    // Relative rendition paths resolve to the sibling API route
+    expect(await response.text()).toContain("360p/index.m3u8");
+  });
+
+  it("signs segments and the init segment of a rendition playlist", async () => {
+    const id = await makeReady();
+    const text = await (await get(`${base()}/360p/index.m3u8`)).text();
+
+    expect(text).toContain(`https://storage.test/${prefix(id)}360p/seg_000.m4s?`);
+    expect(text).toContain(`#EXT-X-MAP:URI="https://storage.test/${prefix(id)}360p/init_0.mp4?`);
+  });
+
+  it("exposes playback and poster URLs on a ready episode only", async () => {
+    await makeReady();
+    const { data } = await api.anime({ id: animeId }).get();
+
+    const [ready, notReady] = data?.episodes ?? [];
+    expect(ready?.video.playbackUrl).toBe(`${base()}/master.m3u8`);
+    expect(ready?.video.posterUrl).toContain("poster.jpg");
+    expect(notReady?.video).toMatchObject({ status: "NONE", playbackUrl: null, posterUrl: null });
+  });
+
+  it("answers 404 until the video is ready", async () => {
+    expect((await get(`${base()}/master.m3u8`)).status).toBe(404);
+  });
+
+  it("rejects rendition names outside the ladder (no path tricks)", async () => {
+    await makeReady();
+    expect((await get(`${base()}/..%2Fsource/index.m3u8`)).status).toBe(400);
+    expect((await get(`${base()}/480p/index.m3u8`)).status).toBe(404);
+  });
+});
+
+describe("worker transitions", () => {
+  const processing = async (sourceKey: string, hlsPrefix: string | null = null) => {
+    const episode = await episodeRow();
+    await db
+      .update(episodes)
+      .set({ videoStatus: "PROCESSING", videoSourceKey: sourceKey, videoHlsPrefix: hlsPrefix })
+      .where(eq(episodes.id, episode?.id ?? 0));
+    return episode?.id ?? 0;
+  };
+
+  it("marks READY and schedules the previous HLS version for deletion", async () => {
+    const id = await processing("src-2", "episodes/x/hls/old/");
+
+    const ready = await VideoRepository.markReady(id, "src-2", {
+      hlsPrefix: "episodes/x/hls/new/",
+      durationSec: 42,
+    });
+
+    expect(ready).toBe(true);
+    expect(await episodeRow()).toMatchObject({
+      videoStatus: "READY",
+      videoProgress: 100,
+      videoHlsPrefix: "episodes/x/hls/new/",
+      videoDurationSec: 42,
+    });
+    const [cleanup] = await boss.fetch(QUEUES.cleanup);
+    expect(cleanup?.data).toEqual({ prefixes: ["episodes/x/hls/old/"] });
+  });
+
+  it("does not let a stale job finish an episode whose upload was replaced", async () => {
+    const id = await processing("src-new");
+
+    expect(
+      await VideoRepository.markReady(id, "src-old", { hlsPrefix: "p/", durationSec: 1 }),
+    ).toBe(false);
+    await VideoRepository.setProgress(id, "src-old", 50);
+    await VideoRepository.markFailed(id, "src-old", "boom");
+
+    expect(await episodeRow()).toMatchObject({
+      videoStatus: "PROCESSING",
+      videoProgress: 0,
+      videoError: null,
+    });
+  });
+
+  it("records progress and the failure reason for the current source", async () => {
+    const id = await processing("src");
+
+    await VideoRepository.setProgress(id, "src", 40);
+    expect((await episodeRow())?.videoProgress).toBe(40);
+
+    await VideoRepository.markFailed(id, "src", "ffmpeg exited with 1");
+    expect(await episodeRow()).toMatchObject({
+      videoStatus: "FAILED",
+      videoError: "ffmpeg exited with 1",
+    });
   });
 });

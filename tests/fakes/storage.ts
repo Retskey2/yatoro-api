@@ -23,6 +23,15 @@ export class FakeStorage implements ObjectStorage {
     return (this.objects.get(key) ?? new Uint8Array()).slice(0, bytes);
   }
 
+  async readText(key: string) {
+    const object = this.objects.get(key);
+    return object ? new TextDecoder().decode(object) : null;
+  }
+
+  async downloadTo(key: string, path: string) {
+    await Bun.write(path, this.objects.get(key) ?? new Uint8Array());
+  }
+
   async write(key: string, data: Blob | Uint8Array | string) {
     this.objects.set(
       key,
