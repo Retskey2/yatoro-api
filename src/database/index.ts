@@ -13,3 +13,6 @@ export const client = postgres(env.DATABASE_URL, {
 export const db = drizzle(client, { schema, casing: "snake_case" });
 
 export type Database = typeof db;
+export type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+/** Anything that can run a query: the pool itself or an open transaction */
+export type Executor = Database | Transaction;

@@ -33,6 +33,8 @@
 - Ответы — через явные мапперы (`toAnimeSummary`, `toPublicUser`) и `response`-схемы: новые колонки не утекают наружу.
 - Ошибки — только наследники `AppError` из `src/shared/errors.ts`; всё остальное клиент видит как `INTERNAL_ERROR`.
 - Доступ — макросы `{ auth: true }` и `{ role: "ADMIN" }` из `src/shared/plugins/auth.ts`.
+- Любое изменение каталога админом пишется в журнал через `AuditRepository.record(tx, …)` **в той же транзакции**;
+  контекст (`actorId`, `requestId`) собирается в роуте через `auditContext(user, set)`.
 
 ## Грабли, на которые уже наступили
 

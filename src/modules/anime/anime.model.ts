@@ -104,6 +104,47 @@ export const CreateAnimeBody = t.Object({
   genreIds: t.Optional(t.Array(t.Integer({ minimum: 1 }), { uniqueItems: true, maxItems: 20 })),
 });
 
+/**
+ * Partial update: an omitted field stays as is, `null` clears it.
+ * `genreIds` replaces the whole set. An empty body is rejected.
+ */
+export const UpdateAnimeBody = t.Object(
+  {
+    title: t.Optional(t.String({ minLength: 1, maxLength: 255 })),
+    slug: t.Optional(Slug),
+    titleEn: t.Optional(t.Nullable(t.String({ maxLength: 255 }))),
+    titleJa: t.Optional(t.Nullable(t.String({ maxLength: 255 }))),
+    titleRomaji: t.Optional(t.Nullable(t.String({ maxLength: 255 }))),
+    synonyms: t.Optional(t.Array(t.String({ maxLength: 255 }), { maxItems: 30 })),
+    description: t.Optional(t.Nullable(t.String({ maxLength: 10_000 }))),
+    posterUrl: t.Optional(t.Nullable(MediaUrl)),
+    kind: t.Optional(AnimeKind),
+    status: t.Optional(AnimeStatus),
+    ageRating: t.Optional(t.Nullable(AgeRating)),
+    episodesTotal: t.Optional(t.Nullable(t.Integer({ minimum: 0 }))),
+    episodesAired: t.Optional(t.Integer({ minimum: 0 })),
+    durationMin: t.Optional(t.Nullable(t.Integer({ minimum: 0 }))),
+    airedOn: t.Optional(t.Nullable(IsoDate)),
+    releasedOn: t.Optional(t.Nullable(IsoDate)),
+    genreIds: t.Optional(t.Array(t.Integer({ minimum: 1 }), { uniqueItems: true, maxItems: 20 })),
+  },
+  { minProperties: 1 },
+);
+
+export const EpisodeParams = t.Object({
+  id: t.Integer({ minimum: 1 }),
+  number: t.Integer({ minimum: 1 }),
+});
+
+export const UpdateEpisodeBody = t.Object(
+  {
+    number: t.Optional(t.Integer({ minimum: 1 })),
+    title: t.Optional(t.Nullable(t.String({ maxLength: 255 }))),
+    videoUrl: t.Optional(t.Nullable(MediaUrl)),
+  },
+  { minProperties: 1 },
+);
+
 export const CreateEpisodeBody = t.Object({
   number: t.Integer({ minimum: 1 }),
   title: t.Optional(t.String({ maxLength: 255 })),

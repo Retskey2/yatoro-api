@@ -91,6 +91,11 @@ jobs:
             -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
             -d '{"name":"Меха","slug":"mecha"}' | jq -e '.name == "Меха"'
 
+          # Audit log on real PostgreSQL: the change above must be recorded with its author
+          curl --silent --fail "http://localhost:5084/api/admin/audit-log?action=genre.create" \
+            -H "authorization: Bearer $TOKEN" \
+            | jq -e '.items[0].changes.slug.to == "mecha" and .items[0].actor.username == "admin"'
+
           # Graceful shutdown: SIGTERM must end with a clean exit
           kill -TERM "$SERVER_PID"
           wait "$SERVER_PID"
