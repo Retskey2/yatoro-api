@@ -76,7 +76,7 @@
 | + Biome | — | ✅ **2.5.15** (dev) | Линтер и форматтер одним инструментом |
 | + @elysiajs/eden | — | ✅ **1.4.9** (dev) | Типизированные тесты; позже — фронтенд |
 | + file-type | — | ✅ **22.1.1** | Определение типа файла по сигнатуре |
-| + BullMQ, Redis/Valkey, MinIO, ffmpeg | — | фаза 4 | Видео-пайплайн |
+| + pg-boss, SeaweedFS, ffmpeg | — | фаза 4 | Видео-пайплайн; выбор и замеры — [ADR 0002](adr/0002-video-pipeline-infrastructure.md) (MinIO — в архиве) |
 | + @elysiajs/opentelemetry | — | фаза 6 | Трассировка |
 
 ---
@@ -96,17 +96,16 @@ flowchart LR
     Sync["Импорт каталога<br/>Shikimori / AniList"]
   end
 
-  PG[("PostgreSQL<br/>Drizzle · pg_trgm")]
-  Redis[("Redis / Valkey<br/>очереди · pub/sub · кэш")]
-  S3[("S3 / MinIO<br/>исходники · сегменты")]
+  PG[("PostgreSQL<br/>Drizzle · pg_trgm · очередь pg-boss")]
+  S3[("S3 / SeaweedFS<br/>исходники · сегменты")]
 
   Web -->|REST / WS| API
   Web -->|presigned PUT| S3
-  Player -->|.m3u8 / сегменты| S3
-  API --> PG
-  API --> Redis
+  Player -->|подписанный .m3u8| API
+  Player -->|сегменты| S3
+  API -->|данные + задача в одной транзакции| PG
   API -->|presigned URL| S3
-  Redis -->|BullMQ| Worker
+  PG -->|pg-boss| Worker
   Worker --> S3
   Worker --> PG
   Sync --> PG
@@ -175,7 +174,7 @@ docs/
 
 - ✅ Локальная база без Docker: `bun run db:dev` — PGlite по протоколу Postgres (`@electric-sql/pglite-socket`), данные в `./.pglite`
 - ✅ Dockerfile (multi-stage, `oven/bun:1.4.2-alpine`, только prod-зависимости, non-root, HEALTHCHECK), `.dockerignore`
-- ✅ `docker-compose.yml`: api + PostgreSQL 18. Redis и MinIO добавим в фазе 4, когда они реально понадобятся
+- ✅ `docker-compose.yml`: api + PostgreSQL 18. SeaweedFS и воркер добавим в фазе 4, когда они реально понадобятся
 - ✅ `GET /health` (проверка базы с таймаутом, 503 при недоступности), graceful shutdown (SIGINT/SIGTERM), `DATABASE_POOL_MAX`
 - ✅ Seed: админ из `SEED_ADMIN_*`, 9 жанров, 7 тайтлов с сериями; идемпотентный
 - ✅ GitHub Actions: lint/types/tests · миграции + двойной seed + смоук-тест на настоящем PostgreSQL 18 · сборка Docker-образа
@@ -203,7 +202,7 @@ docs/
   название), keyset-пагинация с непрозрачным курсором и индексами под каждую сортировку
 - ✅ `GET /api/anime/by-slug/:slug`, студии в карточке, жанры в выдаче каталога одним подзапросом
 - ✅ `bun run bench:catalog` — бенчмарк каталога через весь HTTP-путь
-- ⏭ Регулярное обновление онгоингов: пока `catalog:import --status ongoing`, по расписанию — repeatable job BullMQ в фазе 4
+- ⏭ Регулярное обновление онгоингов: пока `catalog:import --status ongoing`, по расписанию — `schedule()` pg-boss в фазе 4
 - ⏭ AniList как второй источник — по необходимости (клиент и маппер изолированы, источник подключается рядом)
 - ✅ Админка: `PATCH`/`DELETE` для аниме и серий (частичное обновление: пропущенное поле не меняется, `null` очищает),
   журнал действий `GET /api/admin/audit-log` с фильтрами и пагинацией. Запись в журнал — в той же транзакции,
@@ -234,16 +233,18 @@ docs/
 
 ### Фаза 4 — Видео-пайплайн (HLS) ⬜ — *главная фича, следующая*
 
-Предусловие: Docker Desktop локально (S3-хранилище и воркер с ffmpeg). Перед стартом сравнить очередь
-на PostgreSQL (без Redis) с BullMQ и встроенный S3-клиент Bun с AWS SDK — решение оформить ADR.
-
-
-- Загрузка сразу в S3/MinIO по presigned URL (multipart): API не держит файл в памяти.
+- ✅ 4.0 Docker Desktop локально (Engine 29.8, WSL 2)
+- ✅ 4.1 Решения с экспериментами — [ADR 0002](adr/0002-video-pipeline-infrastructure.md): очередь **pg-boss** на PostgreSQL
+  (задача ставится в одной транзакции со статусом серии; BullMQ оставлял задачу после отката), хранилище **SeaweedFS**
+  (MinIO в архиве, у RustFS только preview-релизы), **Bun.S3Client** (+ AWS SDK только для настройки бакета),
+  загрузка одной подписанной PUT-ссылкой, доступ — приватный бакет и подпись плейлиста
+- ⬜ 4.2 `docker compose up` — PostgreSQL, SeaweedFS, API, воркер одной командой
+- ⬜ Загрузка сразу в хранилище по подписанной ссылке: API не держит файл в памяти.
   Сейчас Elysia разбирает тело запроса **до** проверки роли, поэтому даже неавторизованный запрос
   на 100 МБ будет прочитан целиком — presigned-загрузка убирает это полностью
-- BullMQ → воркер ffmpeg: HLS 360p/720p/1080p, master-плейлист, кадр-превью, спрайт + WebVTT для превью на таймлайне
+- pg-boss → воркер ffmpeg: HLS 360p/720p/1080p, master-плейлист, кадр-превью, спрайт + WebVTT для превью на таймлайне
 - Статусы серии: `UPLOADING → PROCESSING → READY / FAILED`, прогресс кодирования через SSE
-- Отдача через подписанные URL / CDN; сегменты не попадают под rate limit
+- Отдача: API подписывает плейлист, сегменты идут прямо из хранилища и не попадают под rate limit
 - Разметка опенинга/эндинга → «Пропустить опенинг»
 - Демо-контент: открытые фильмы Blender Studio (CC BY)
 

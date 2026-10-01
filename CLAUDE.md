@@ -8,7 +8,9 @@
 
 ## Окружение
 
-- Windows + Git Bash. Docker локально нет: база для разработки — `bun run db:dev` (PGlite по протоколу Postgres).
+- Windows + Git Bash. База для разработки без Docker — `bun run db:dev` (PGlite по протоколу Postgres).
+- Docker Desktop установлен в профиль пользователя; CLI не в PATH оболочек инструмента:
+  `export PATH="/c/Users/bashl/AppData/Local/Programs/DockerDesktop/resources/bin:$PATH"`.
 - Bun стоит в `~/.bun/bin`; в свежей оболочке инструмента его может не быть в PATH: `export PATH="$HOME/.bun/bin:$PATH"`.
 - `gh` авторизован как Retskey2 (`/c/Program Files/GitHub CLI/gh`, если не в PATH).
 
