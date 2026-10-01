@@ -8,6 +8,7 @@ import { client } from "@/database";
 import { type JobData, QUEUES, startJobQueue, stopJobQueue } from "@/queue";
 import { logger } from "@/shared/logger";
 import { requireStorage } from "@/shared/storage";
+import { handleTranscode } from "./transcode";
 
 function ffmpegVersion(): string | null {
   try {
@@ -26,12 +27,16 @@ if (!ffmpeg) {
 
 const boss = await startJobQueue("worker");
 
-await boss.work(QUEUES.transcode, { pollingIntervalSeconds: 2 }, async ([job]) => {
-  // Phase 4.4: download the source, ffmpeg → HLS ladder, upload, mark the episode READY.
-  // Until then fail loudly: a job must never be marked done without being processed.
-  logger.warn({ jobId: job?.id, data: job?.data }, "transcode handler is not implemented yet");
-  throw new Error("Transcoding is not implemented yet");
-});
+// One transcode at a time per worker: ffmpeg already uses every core.
+// includeMetadata: the handler needs retryLimit to tell the last attempt
+const transcodeOptions = { pollingIntervalSeconds: 2, includeMetadata: true } as const;
+await boss.work<JobData["video.transcode"], void, typeof transcodeOptions>(
+  QUEUES.transcode,
+  transcodeOptions,
+  async ([job]) => {
+    if (job) await handleTranscode(job);
+  },
+);
 
 await boss.work<JobData["storage.cleanup"]>(QUEUES.cleanup, async ([job]) => {
   if (!job) return;

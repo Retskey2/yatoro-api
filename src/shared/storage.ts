@@ -25,6 +25,10 @@ export interface ObjectStorage {
   stat(key: string): Promise<{ size: number } | null>;
   /** The first bytes of the object (ranged GET) — enough to detect the real file type */
   readHead(key: string, bytes: number): Promise<Uint8Array>;
+  /** Whole object as text (HLS playlists); `null` if it does not exist */
+  readText(key: string): Promise<string | null>;
+  /** Streams the object to a local file (the worker reads sources this way) */
+  downloadTo(key: string, path: string): Promise<void>;
   write(key: string, data: Blob | Uint8Array | string, contentType?: string): Promise<void>;
   delete(key: string): Promise<void>;
   /** Deletes every object under the prefix and returns how many were deleted */
@@ -63,6 +67,19 @@ class S3ObjectStorage implements ObjectStorage {
 
   async readHead(key: string, bytes: number) {
     return new Uint8Array(await this.internal.file(key).slice(0, bytes).arrayBuffer());
+  }
+
+  async readText(key: string) {
+    try {
+      return await this.internal.file(key).text();
+    } catch (error) {
+      if ((error as { code?: string }).code === "NoSuchKey") return null;
+      throw error;
+    }
+  }
+
+  async downloadTo(key: string, path: string) {
+    await Bun.write(path, this.internal.file(key));
   }
 
   async write(key: string, data: Blob | Uint8Array | string, contentType?: string) {

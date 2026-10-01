@@ -52,7 +52,18 @@ async function waitFor(what: string, probe: () => Promise<boolean>, seconds = 30
 }
 
 type Ticket = { uploadUrl: string };
-type EpisodeResponse = { id: number; video: { status: string; error: string | null } };
+type EpisodeResponse = {
+  id: number;
+  number: number;
+  video: {
+    status: string;
+    progress: number;
+    durationSec: number | null;
+    error: string | null;
+    playbackUrl: string | null;
+    posterUrl: string | null;
+  };
+};
 
 const login = await call<{ accessToken: string }>("POST", "/api/auth/login", ADMIN);
 check(login.status === 200, "admin logs in");
@@ -70,7 +81,10 @@ const episodesPath = `/api/anime/${anime.data.id}/episodes`;
 for (const number of [1, 2]) await call("POST", episodesPath, { number }, token);
 
 // --- happy path: a real video through a presigned URL ---
-const mp4 = await Bun.file(join(import.meta.dir, "../tests/fixtures/video/sample.mp4")).bytes();
+// E2E_SOURCE: any local video (e.g. a 720p clip to see the full ladder); the 1 s fixture by default
+const mp4 = await Bun.file(
+  process.env.E2E_SOURCE ?? join(import.meta.dir, "../tests/fixtures/video/sample.mp4"),
+).bytes();
 const ticket = await call<Ticket>(
   "POST",
   `${episodesPath}/1/video/upload`,
@@ -96,6 +110,57 @@ const sourceKey = decodeURIComponent(new URL(ticket.data.uploadUrl).pathname).re
 );
 check(await s3.exists(sourceKey), `source stored at ${sourceKey}`);
 
+// --- the worker transcodes it to HLS ---
+const startedAt = performance.now();
+let video: EpisodeResponse["video"] | undefined;
+await waitFor(
+  "the worker to transcode",
+  async () => {
+    const { data } = await call<{ episodes: EpisodeResponse[] }>(
+      "GET",
+      `/api/anime/${anime.data.id}`,
+    );
+    video = data.episodes.find((episode) => episode.number === 1)?.video;
+    if (video?.status === "FAILED") throw new Error(`transcode failed: ${video.error}`);
+    return video?.status === "READY";
+  },
+  300,
+);
+const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
+check(
+  video?.status === "READY" && video.progress === 100,
+  `READY in ${seconds} s (${video?.durationSec?.toFixed(1)} s of video)`,
+);
+
+// --- and a player can play it: the same requests hls.js makes ---
+const masterResponse = await fetch(`${API}${video?.playbackUrl}`);
+const master = await masterResponse.text();
+const renditions = master.split(/\r?\n/).filter((line) => line && !line.startsWith("#"));
+check(
+  masterResponse.headers.get("content-type") === "application/vnd.apple.mpegurl" &&
+    renditions.length > 0,
+  `master playlist: ${renditions.map((path) => path.split("/")[0]).join(", ")}`,
+);
+
+const renditionUrl = new URL(renditions[0] ?? "", `${API}${video?.playbackUrl}`);
+const playlist = await (await fetch(renditionUrl)).text();
+const initUrl = /URI="([^"]+)"/.exec(playlist)?.[1] ?? "";
+const segmentUrl = playlist.split(/\r?\n/).find((line) => line.startsWith("http")) ?? "";
+check(
+  initUrl.startsWith("http://localhost:9000/") && segmentUrl.startsWith("http://localhost:9000/"),
+  "rendition playlist points to signed storage URLs (init + segments)",
+);
+
+const init = await fetch(initUrl);
+const segment = await fetch(segmentUrl);
+check(
+  init.ok && segment.ok && (await segment.arrayBuffer()).byteLength > 0,
+  "init segment and media segment download straight from the storage",
+);
+
+const poster = await fetch(video?.posterUrl ?? "");
+check(poster.ok && (await poster.arrayBuffer()).byteLength > 0, "poster is available");
+
 // --- a non-video under a video URL is rejected and removed ---
 const bad = await call<Ticket>("POST", `${episodesPath}/2/video/upload`, { size: 30 }, token);
 await fetch(bad.data.uploadUrl, { method: "PUT", body: "<script>alert(1)</script>" });
@@ -119,7 +184,11 @@ check(!(await s3.exists(badKey)), "the rejected object is deleted from the stora
 const deleted = await call("DELETE", `${episodesPath}/1`, undefined, token);
 check(deleted.status === 204, "episode deleted");
 await waitFor("the worker to clean up", async () => !(await s3.exists(sourceKey)));
-check(true, "the worker deleted the episode's files from the storage");
+const leftovers = await s3.list({ prefix: sourceKey.split("/source/")[0] });
+check(
+  (leftovers.contents ?? []).length === 0,
+  "the worker deleted the episode's files (source and HLS) from the storage",
+);
 
 await call("DELETE", `/api/anime/${anime.data.id}`, undefined, token);
 console.log(`\n🎉 video upload flow works end to end (${step} checks)`);
