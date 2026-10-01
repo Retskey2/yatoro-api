@@ -32,3 +32,10 @@ const { SEARCH_SESSION_SQL } = await import("../src/database/search");
 await client.exec(SEARCH_SESSION_SQL);
 
 mock.module("@/database", () => ({ db, client }));
+
+// The job queue runs on the same PGlite database (official pg-boss adapter)
+const { PgBoss, fromPglite } = await import("pg-boss");
+mock.module("@/queue/connection", () => ({
+  createBoss: () =>
+    new PgBoss({ db: fromPglite(client), backend: "pglite", supervise: false, schedule: false }),
+}));

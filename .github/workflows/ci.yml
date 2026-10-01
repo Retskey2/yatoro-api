@@ -145,6 +145,35 @@ jobs:
           preflight http://localhost:5084 | grep -qi "access-control-allow-origin: http://localhost:5084"
           ! preflight http://evil.example | grep -qi "access-control-allow-origin"
 
+      - name: Worker and job queue on real PostgreSQL
+        run: |
+          docker compose logs worker | grep -q "worker ready"
+          docker compose exec -T worker ffmpeg -version | head -1
+
+          # Enqueue through our transactions: one commits, one rolls back
+          docker compose exec -T api bun -e '
+            import { db } from "@/database";
+            import { enqueue, QUEUES, stopJobQueue } from "@/queue";
+            await db.transaction((tx) => enqueue(tx, QUEUES.transcode, { episodeId: 42, sourceKey: "ci/42.mp4" }));
+            await db.transaction(async (tx) => {
+              await enqueue(tx, QUEUES.transcode, { episodeId: 43, sourceKey: "ci/43.mp4" });
+              throw new Error("rollback on purpose");
+            }).catch(() => {});
+            await stopJobQueue();
+            process.exit(0);'
+
+          # The committed job reaches the worker...
+          for i in $(seq 1 30); do docker compose logs worker | grep -q '"episodeId":42' && break; sleep 1; done
+          docker compose logs worker | grep -q '"episodeId":42'
+          # ...and the rolled-back one never existed
+          test "$(docker compose exec -T postgres psql -U yatoro -d yatoro -tAc \
+            "select count(*) from pgboss.job where data->>'episodeId' = '43'")" = "0"
+
+      - name: Worker stops gracefully
+        run: |
+          docker compose stop worker
+          docker compose logs worker | grep -q "Воркер остановлен"
+
       - name: Restart is idempotent (no duplicate seed, existing bucket kept)
         run: |
           docker compose restart api
