@@ -176,6 +176,8 @@ docs/
 - ✅ Seed: админ из `SEED_ADMIN_*`, 9 жанров, 7 тайтлов с сериями; идемпотентный
 - ✅ GitHub Actions: lint/types/tests · миграции + двойной seed + смоук-тест на настоящем PostgreSQL 18 · сборка Docker-образа
 - ✅ README: быстрый старт без Docker, CI-бейдж, скрипты, API
+- ✅ Защита `main` (ruleset: только PR, три обязательные проверки CI), Dependabot (bun, Actions, Docker; cooldown,
+  группы, исключения для известных несовместимостей), `CLAUDE.md` с договорённостями проекта
 - ⬜ Первый зелёный прогон CI на GitHub (после push)
 - ⬜ Локальный запуск `docker compose up` — когда будет Docker
 
