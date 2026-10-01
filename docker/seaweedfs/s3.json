@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "yatoro-api",
+      "credentials": [
+        {
+          "accessKey": "yatoro-dev",
+          "secretKey": "yatoro-dev-secret-change-me"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

@@ -71,7 +71,7 @@ jobs:
           # Run the file directly (not via `bun run start`) so $! is the server itself
           bun src/index.ts > server.log 2>&1 &
           SERVER_PID=$!
-          curl --silent --fail --retry 20 --retry-connrefused --retry-delay 1 http://localhost:5084/health
+          curl --silent --fail --retry 20 --retry-all-errors --retry-delay 1 http://localhost:5084/health
 
           curl --silent --fail "http://localhost:5084/api/anime?limit=3" | grep -q '"items"'
 
@@ -118,3 +118,44 @@ jobs:
           tags: yatoro-api:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  stack:
+    # SeaweedFS needs command-line arguments, which service containers cannot pass,
+    # so the whole stack is started exactly as on a developer machine
+    name: Full stack (docker compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start PostgreSQL + SeaweedFS + API
+        run: |
+          cp .env.example .env
+          docker compose up -d --build --wait --wait-timeout 240
+
+      - name: Health, storage and bucket CORS
+        run: |
+          curl --silent --fail http://localhost:5084/health \
+            | jq -e '.status == "ok" and .database == "up" and .storage == "up"'
+
+          preflight() {
+            curl --silent -o /dev/null -D - -X OPTIONS "http://localhost:9000/yatoro-media/probe.mp4" \
+              -H "Origin: $1" -H "Access-Control-Request-Method: PUT"
+          }
+          # The demo page may upload straight to the bucket, a foreign site may not
+          preflight http://localhost:5084 | grep -qi "access-control-allow-origin: http://localhost:5084"
+          ! preflight http://evil.example | grep -qi "access-control-allow-origin"
+
+      - name: Restart is idempotent (no duplicate seed, existing bucket kept)
+        run: |
+          docker compose restart api
+          curl --silent --fail --retry 30 --retry-all-errors --retry-delay 1 http://localhost:5084/health > /dev/null
+          docker compose logs api | grep -q "Seed: админ уже был, аниме добавлено: 0"
+          docker compose logs api | grep -q '"created":false'
+
+      - name: Logs
+        if: always()
+        run: docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
