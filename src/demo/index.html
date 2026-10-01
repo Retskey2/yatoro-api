@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Yatoro — демо</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #181b22;
+        --line: #2a2f3a;
+        --text: #e8eaf0;
+        --muted: #9aa3b2;
+        --accent: #7c9cff;
+        --ok: #4cc38a;
+        --warn: #e5b64a;
+        --bad: #ef6b6b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+        position: sticky;
+        top: 0;
+        z-index: 2;
+      }
+      header h1 { font-size: 18px; margin: 0 8px 0 0; }
+      header small { color: var(--muted); }
+      input, button, select {
+        font: inherit;
+        color: var(--text);
+        background: #11141a;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 7px 10px;
+      }
+      button { cursor: pointer; }
+      button.primary { background: var(--accent); color: #0b0d12; border-color: var(--accent); font-weight: 600; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      #search { flex: 1; min-width: 200px; }
+      #auth { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 20px; padding: 20px; }
+      @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+        padding: 0;
+        text-align: left;
+      }
+      .card:hover, .card:focus-visible { border-color: var(--accent); }
+      .card img, .card .noposter { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; background: #222733; }
+      .card span { display: block; padding: 8px; font-size: 13px; }
+      .card .meta { color: var(--muted); font-size: 12px; padding-top: 0; }
+      section.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+      h2 { margin: 0 0 8px; font-size: 20px; }
+      .muted { color: var(--muted); }
+      video { width: 100%; border-radius: 10px; background: #000; aspect-ratio: 16 / 9; }
+      .player-bar { display: flex; gap: 10px; align-items: center; margin: 8px 0 14px; flex-wrap: wrap; }
+      ul.episodes { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 8px; }
+      ul.episodes li {
+        display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+        padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+      }
+      .badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); }
+      .READY { color: var(--ok); border-color: var(--ok); }
+      .PROCESSING, .UPLOADING { color: var(--warn); border-color: var(--warn); }
+      .FAILED { color: var(--bad); border-color: var(--bad); }
+      progress { width: 140px; }
+      .grow { flex: 1; }
+      .error { color: var(--bad); }
+      .hint { font-size: 13px; color: var(--muted); margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Yatoro <small>демо API</small></h1>
+      <input id="search" type="search" placeholder="Поиск: фрирэн, атака титанов, cowboy…" autocomplete="off" />
+      <div id="auth"></div>
+    </header>
+
+    <main>
+      <div>
+        <div id="results" class="grid"></div>
+      </div>
+      <div>
+        <section class="panel" id="details">
+          <h2>Выберите тайтл</h2>
+          <p class="muted">
+            Поиск гибридный: полнотекстовый + триграммы, поэтому опечатки тоже находят.
+            Войдите как админ, чтобы загрузить видео серии.
+          </p>
+        </section>
+      </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js"></script>
+    <script type="module">
+      // Data from the catalog comes from an external source: rendered with textContent only, never innerHTML
+      const h = (tag, props = {}, ...children) => {
+        const element = Object.assign(document.createElement(tag), props);
+        for (const child of children.flat()) {
+          if (child != null) element.append(child instanceof Node ? child : String(child));
+        }
+        return element;
+      };
+
+      const state = { token: sessionStorage.getItem("yatoro-token"), anime: null, hls: null, poll: null };
+
+      async function api(path, { method = "GET", body } = {}) {
+        const response = await fetch(path, {
+          method,
+          headers: {
+            ...(body ? { "content-type": "application/json" } : {}),
+            ...(state.token ? { authorization: `Bearer ${state.token}` } : {}),
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const data = response.status === 204 ? null : await response.json();
+        if (!response.ok) throw new Error(data?.error?.message ?? `HTTP ${response.status}`);
+        return data;
+      }
+
+      // ---------- auth ----------
+      function renderAuth() {
+        const box = document.getElementById("auth");
+        box.replaceChildren();
+        if (state.token) {
+          box.append(
+            h("span", { className: "muted" }, "админ"),
+            h("button", { onclick: () => { state.token = null; sessionStorage.removeItem("yatoro-token"); renderAuth(); openAnime(state.anime?.id); } }, "Выйти"),
+          );
+          return;
+        }
+        const email = h("input", { type: "email", placeholder: "email", value: "admin@yatoro.local", size: 18 });
+        const password = h("input", { type: "password", placeholder: "пароль", size: 14 });
+        const error = h("span", { className: "error" });
+        const login = async () => {
+          try {
+            const data = await api("/api/auth/login", { method: "POST", body: { email: email.value, password: password.value } });
+            if (data.user.role !== "ADMIN") throw new Error("Нужна роль ADMIN");
+            state.token = data.accessToken;
+            sessionStorage.setItem("yatoro-token", state.token);
+            renderAuth();
+            openAnime(state.anime?.id);
+          } catch (e) {
+            error.textContent = e.message;
+          }
+        };
+        password.onkeydown = (event) => event.key === "Enter" && login();
+        box.append(email, password, h("button", { className: "primary", onclick: login }, "Войти"), error);
+      }
+
+      // ---------- catalog ----------
+      let searchTimer;
+      let searchSeq = 0;
+      async function search(q) {
+        const seq = ++searchSeq; // drop out-of-order responses
+        const params = new URLSearchParams({ limit: "18", ...(q ? { q } : {}) });
+        const data = await api(`/api/anime?${params}`);
+        if (seq !== searchSeq) return;
+        document.getElementById("results").replaceChildren(
+          ...data.items.map((anime) =>
+            h(
+              "button",
+              { className: "card", type: "button", onclick: () => openAnime(anime.id) },
+              anime.posterUrl
+                ? h("img", { src: anime.posterUrl, alt: "", loading: "lazy", referrerPolicy: "no-referrer" })
+                : h("span", { className: "noposter" }),
+              h("span", {}, anime.title),
+              h("span", { className: "meta" }, [anime.year, anime.kind, anime.score && `★ ${anime.score}`].filter(Boolean).join(" · ")),
+            ),
+          ),
+        );
+      }
+      document.getElementById("search").addEventListener("input", (event) => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => search(event.target.value.trim()), 250);
+      });
+
+      // ---------- details, episodes, player ----------
+      async function openAnime(id) {
+        if (!id) return;
+        clearInterval(state.poll);
+        const anime = await api(`/api/anime/${id}`);
+        state.anime = anime;
+        renderDetails(anime);
+        // Keep statuses fresh while something is being uploaded or transcoded
+        if (anime.episodes.some((episode) => ["UPLOADING", "PROCESSING"].includes(episode.video.status))) {
+          state.poll = setInterval(async () => {
+            const fresh = await api(`/api/anime/${id}`);
+            if (state.anime?.id !== id) return;
+            state.anime = fresh;
+            renderEpisodes(fresh);
+            if (!fresh.episodes.some((episode) => ["UPLOADING", "PROCESSING"].includes(episode.video.status))) {
+              clearInterval(state.poll);
+            }
+          }, 2000);
+        }
+      }
+
+      function renderDetails(anime) {
+        const details = document.getElementById("details");
+        const video = h("video", { id: "video", controls: true, playsInline: true });
+        const quality = h("select", { id: "quality", disabled: true }, h("option", {}, "качество"));
+        const now = h("span", { id: "now", className: "muted" });
+        details.replaceChildren(
+          h("h2", {}, anime.title),
+          h("p", { className: "muted" }, [anime.titleRomaji, anime.year, anime.genres.map((g) => g.name).join(", ")].filter(Boolean).join(" · ")),
+          video,
+          h("div", { className: "player-bar" }, quality, now),
+          h("p", {}, (anime.description ?? "").slice(0, 400) + ((anime.description ?? "").length > 400 ? "…" : "")),
+          h("h3", {}, "Серии"),
+          h("ul", { className: "episodes", id: "episodes" }),
+        );
+        renderEpisodes(anime);
+      }
+
+      function renderEpisodes(anime) {
+        const list = document.getElementById("episodes");
+        if (!list) return;
+        list.replaceChildren(
+          ...anime.episodes.map((episode) =>
+            h(
+              "li",
+              {},
+              h("strong", {}, `Серия ${episode.number}`),
+              h("span", { className: "grow muted" }, episode.title ?? ""),
+              h("span", { className: `badge ${episode.video.status}` },
+                episode.video.status === "PROCESSING" ? `обработка ${episode.video.progress}%` : episode.video.status),
+              episode.video.status === "FAILED" ? h("span", { className: "error" }, episode.video.error) : null,
+              episode.video.playbackUrl
+                ? h("button", { className: "primary", onclick: () => play(episode) }, "▶ Смотреть")
+                : null,
+              state.token ? uploadControl(anime.id, episode) : null,
+            ),
+          ),
+          state.token
+            ? h("li", {}, h("button", { onclick: () => addEpisode(anime) }, "+ Добавить серию"))
+            : h("li", { className: "muted" }, "Войдите как админ, чтобы загрузить видео."),
+        );
+      }
+
+      function play(episode) {
+        const video = document.getElementById("video");
+        const quality = document.getElementById("quality");
+        const now = document.getElementById("now");
+        state.hls?.destroy();
+        video.poster = episode.video.posterUrl ?? "";
+
+        if (window.Hls?.isSupported()) {
+          const hls = new Hls();
+          state.hls = hls;
+          hls.loadSource(episode.video.playbackUrl);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            quality.replaceChildren(
+              h("option", { value: "-1" }, "Авто"),
+              ...hls.levels.map((level, index) => h("option", { value: String(index) }, `${level.height}p`)),
+            );
+            quality.disabled = false;
+            quality.onchange = () => { hls.currentLevel = Number(quality.value); };
+            video.play().catch(() => {});
+          });
+          hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
+            const level = hls.levels[data.level];
+            now.textContent = `сейчас: ${level.height}p, ~${Math.round(level.bitrate / 1000)} кбит/с`;
+          });
+        } else {
+          video.src = episode.video.playbackUrl; // Safari plays HLS natively
+        }
+      }
+
+      async function addEpisode(anime) {
+        const number = Math.max(0, ...anime.episodes.map((episode) => episode.number)) + 1;
+        await api(`/api/anime/${anime.id}/episodes`, { method: "POST", body: { number } });
+        openAnime(anime.id);
+      }
+
+      function uploadControl(animeId, episode) {
+        const input = h("input", { type: "file", accept: "video/*", hidden: true });
+        const bar = h("progress", { max: 100, value: 0, hidden: true });
+        const button = h("button", { onclick: () => input.click() }, "⬆ Загрузить видео");
+        input.onchange = async () => {
+          const file = input.files?.[0];
+          if (!file) return;
+          button.disabled = true;
+          bar.hidden = false;
+          try {
+            const base = `/api/anime/${animeId}/episodes/${episode.number}/video`;
+            const ticket = await api(`${base}/upload`, { method: "POST", body: { size: file.size } });
+            // Straight to the storage with upload progress — the API never sees the bytes
+            await new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open("PUT", ticket.uploadUrl);
+              xhr.upload.onprogress = (event) => { bar.value = (event.loaded / event.total) * 100; };
+              xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(`Хранилище ответило ${xhr.status}`)));
+              xhr.onerror = () => reject(new Error("Ошибка сети при загрузке"));
+              xhr.send(file);
+            });
+            await api(`${base}/complete`, { method: "POST" });
+          } catch (e) {
+            alert(e.message);
+          } finally {
+            openAnime(animeId);
+          }
+        };
+        return h("span", {}, button, input, bar);
+      }
+
+      renderAuth();
+      search("");
+    </script>
+  </body>
+</html>
