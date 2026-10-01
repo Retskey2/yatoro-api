@@ -1,4 +1,8 @@
 # syntax=docker/dockerfile:1
+#
+# Two images from one Dockerfile:
+#   docker build .                  → API (the default target is the last stage)
+#   docker build --target worker .  → background worker with ffmpeg
 
 FROM oven/bun:1.4.2-alpine AS base
 WORKDIR /app
@@ -8,8 +12,8 @@ FROM base AS deps
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
-# ---- runtime ----
-FROM base AS runtime
+# ---- application code shared by the API and the worker ----
+FROM base AS app
 ENV NODE_ENV=production \
     PORT=5084 \
     UPLOADS_DIR=/app/uploads
@@ -20,6 +24,16 @@ COPY package.json tsconfig.json ./
 COPY src ./src
 
 RUN mkdir -p /app/uploads && chown bun:bun /app/uploads
+
+# ---- worker: jobs from the PostgreSQL queue, video transcoding ----
+FROM app AS worker
+# ffmpeg (with ffprobe) from Alpine packages; installed as root, run as `bun`
+RUN apk add --no-cache ffmpeg
+USER bun
+CMD ["bun", "run", "src/worker/index.ts"]
+
+# ---- API (default target) ----
+FROM app AS api
 USER bun
 
 EXPOSE 5084

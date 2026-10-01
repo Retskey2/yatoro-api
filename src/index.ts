@@ -1,6 +1,7 @@
 import { app } from "./app";
 import { env } from "./config/env";
 import { client } from "./database";
+import { startJobQueue, stopJobQueue } from "./queue";
 import { logger } from "./shared/logger";
 import { ensureBucket } from "./shared/storage";
 
@@ -8,6 +9,12 @@ import { ensureBucket } from "./shared/storage";
 // A failure is logged, not fatal: /health reports the storage as down.
 await ensureBucket(env.CORS_ORIGINS).catch((error) =>
   logger.error({ err: error }, "storage bucket setup failed"),
+);
+
+// Started before any request: jobs are enqueued inside request transactions (a lazy start
+// there would hold the transaction open). A failure is retried on the first enqueue.
+await startJobQueue("producer").catch((error) =>
+  logger.error({ err: error }, "job queue start failed"),
 );
 
 app.listen(env.PORT, (server) => {
@@ -29,6 +36,7 @@ async function shutdown(signal: NodeJS.Signals) {
   }, 10_000);
 
   await app.stop();
+  await stopJobQueue();
   await client.end({ timeout: 5 });
 
   clearTimeout(forceExit);

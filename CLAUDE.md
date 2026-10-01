@@ -37,6 +37,8 @@
 - Доступ — макросы `{ auth: true }` и `{ role: "ADMIN" }` из `src/shared/plugins/auth.ts`.
 - Любое изменение каталога админом пишется в журнал через `AuditRepository.record(tx, …)` **в той же транзакции**;
   контекст (`actorId`, `requestId`) собирается в роуте через `auditContext(user, set)`.
+- Фоновые задачи — `enqueue(tx, QUEUES.…, data)` из `src/queue` **внутри транзакции** изменения (откат убирает и задачу).
+  Очередь стартует до первого запроса; в тестах `@/queue/connection` подменяется pg-boss поверх PGlite (`tests/setup.ts`).
 
 ## Грабли, на которые уже наступили
 
