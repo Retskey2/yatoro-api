@@ -4,7 +4,7 @@
 #   docker build .                  → API (the default target is the last stage)
 #   docker build --target worker .  → background worker with ffmpeg
 
-FROM oven/bun:1.4.2-alpine AS base
+FROM oven/bun:1.4.3-alpine AS base
 WORKDIR /app
 
 # ---- production dependencies only (no drizzle-kit, biome, typescript, ...) ----
